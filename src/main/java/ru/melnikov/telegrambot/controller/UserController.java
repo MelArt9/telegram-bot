@@ -2,6 +2,7 @@ package ru.melnikov.telegrambot.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import ru.melnikov.telegrambot.dto.UserDto;
@@ -38,4 +39,11 @@ public class UserController {
     public UserDto create(@Valid @RequestBody UserDto userDto) {
         return userMapper.toDto(userService.save(userMapper.toEntity(userDto)));
     }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        userService.delete(id);
+        return ResponseEntity.noContent().build();
+    }
+
 }

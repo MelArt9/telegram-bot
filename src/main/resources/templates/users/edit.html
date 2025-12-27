@@ -1,10 +1,39 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Title</title>
-</head>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="layout :: layout(~{::body})">
+
 <body>
+
+<div class="form-container">
+    <h2 th:text="${user.id == null ? 'Создание пользователя' : 'Редактирование пользователя'}"></h2>
+
+    <form th:action="@{/users}" method="post">
+        <input type="number" th:field="*{user.telegramId}" required>
+        <input type="hidden" th:field="${user.id}"/>
+
+        <label>Никнейм</label>
+        <input type="text" th:field="${user.username}" required>
+
+        <label>Имя</label>
+        <input type="text" th:field="${user.firstName}" required>
+
+        <label>Фамилия</label>
+        <input type="text" th:field="${user.lastName}" required>
+
+        <label>Роль</label>
+        <select th:field="*{user.role}">
+            <option th:each="r : ${T(ru.melnikov.telegrambot.model.Role).values()}"
+                    th:value="${r}"
+                    th:text="${r}">
+            </option>
+        </select>
+
+        <div class="form-actions">
+            <button type="submit" class="btn-primary">Сохранить</button>
+            <a href="/users" class="btn-secondary">Отмена</a>
+        </div>
+    </form>
+</div>
 
 </body>
 </html>

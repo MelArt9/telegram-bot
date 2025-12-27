@@ -2,6 +2,7 @@ package ru.melnikov.telegrambot.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import ru.melnikov.telegrambot.exception.NotFoundException;
 import ru.melnikov.telegrambot.model.Role;
 import ru.melnikov.telegrambot.model.User;
 import ru.melnikov.telegrambot.repository.UserRepository;
@@ -46,5 +47,15 @@ public class UserService {
                     .role(Role.STUDENT)
                     .build());
         }
+    }
+
+    public User findById(Long id) {
+        return userRepository.findById(id)
+                .orElseThrow(() ->
+                        new NotFoundException("Пользователь с id=" + id + " не найден"));
+    }
+
+    public void delete(Long id) {
+        userRepository.deleteById(id);
     }
 }

@@ -3,6 +3,7 @@ package ru.melnikov.telegrambot.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import ru.melnikov.telegrambot.dto.LinkDto;
+import ru.melnikov.telegrambot.exception.NotFoundException;
 import ru.melnikov.telegrambot.mapper.LinkMapper;
 import ru.melnikov.telegrambot.model.Link;
 import ru.melnikov.telegrambot.repository.LinkRepository;
@@ -35,5 +36,11 @@ public class LinkService {
                 .stream()
                 .map(linkMapper::toDto)
                 .toList();
+    }
+
+    public Link findById(Long id) {
+        return linkRepository.findById(id)
+                .orElseThrow(() ->
+                        new NotFoundException("Ссылка с id=" + id + " не найдена"));
     }
 }

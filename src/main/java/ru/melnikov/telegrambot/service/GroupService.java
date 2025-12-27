@@ -2,6 +2,7 @@ package ru.melnikov.telegrambot.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import ru.melnikov.telegrambot.exception.NotFoundException;
 import ru.melnikov.telegrambot.model.Group;
 import ru.melnikov.telegrambot.repository.GroupRepository;
 
@@ -24,5 +25,11 @@ public class GroupService {
 
     public Group save(Group group) {
         return groupRepository.save(group);
+    }
+
+    public Group findById(Long id) {
+        return groupRepository.findById(id)
+                .orElseThrow(() ->
+                        new NotFoundException("Группа с id=" + id + " не найдена"));
     }
 }

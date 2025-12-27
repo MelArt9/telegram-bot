@@ -3,6 +3,7 @@ package ru.melnikov.telegrambot.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import ru.melnikov.telegrambot.dto.ScheduleDto;
+import ru.melnikov.telegrambot.exception.NotFoundException;
 import ru.melnikov.telegrambot.mapper.ScheduleMapper;
 import ru.melnikov.telegrambot.model.Schedule;
 import ru.melnikov.telegrambot.repository.ScheduleRepository;
@@ -41,5 +42,15 @@ public class ScheduleService {
     public ScheduleDto save(ScheduleDto scheduleDto) {
         Schedule schedule = scheduleMapper.toEntity(scheduleDto);
         return scheduleMapper.toDto(scheduleRepository.save(schedule));
+    }
+
+    public List<Schedule> findAll() {
+        return scheduleRepository.findAll();
+    }
+
+    public Schedule findById(Long id) {
+        return scheduleRepository.findById(id)
+                .orElseThrow(() ->
+                        new NotFoundException("Расписание с id=" + id + " не найдено"));
     }
 }
