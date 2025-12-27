@@ -4,18 +4,17 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
-import java.time.LocalDateTime;
-
 @Data
-public class DeadlineDto {
+public class LinkDto {
 
     private Long id;
 
     @NotBlank
     private String title;
 
+    @NotBlank
+    private String url;
+
     @NotNull
-    private LocalDateTime deadlineAt;
-    private String description;
     private Long createdBy;
 }

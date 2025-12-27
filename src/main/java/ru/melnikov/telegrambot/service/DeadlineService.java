@@ -16,6 +16,7 @@ public class DeadlineService {
 
     private final DeadlineRepository deadlineRepository;
     private final DeadlineMapper deadlineMapper;
+    private final UserService userService;
 
     public List<DeadlineDto> findAll() {
         return deadlineRepository.findAll()
@@ -33,6 +34,9 @@ public class DeadlineService {
 
     public DeadlineDto create(DeadlineDto dto) {
         Deadline deadline = deadlineMapper.toEntity(dto);
+        if (dto.getCreatedBy() != null) {
+            deadline.setCreatedBy(userService.getByIdOrThrow(dto.getCreatedBy()));
+        }
         return deadlineMapper.toDto(deadlineRepository.save(deadline));
     }
 }

@@ -3,15 +3,15 @@ package ru.melnikov.telegrambot.mapper;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.ReportingPolicy;
-import ru.melnikov.telegrambot.dto.DeadlineDto;
-import ru.melnikov.telegrambot.model.Deadline;
+import ru.melnikov.telegrambot.dto.LinkDto;
+import ru.melnikov.telegrambot.model.Link;
 
 @Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.IGNORE)
-public interface DeadlineMapper {
+public interface LinkMapper {
 
     @Mapping(source = "createdBy.id", target = "createdBy")
-    DeadlineDto toDto(Deadline entity);
+    LinkDto toDto(Link entity);
 
     @Mapping(target = "createdBy", ignore = true)
-    Deadline toEntity(DeadlineDto dto);
+    Link toEntity(LinkDto dto);
 }
