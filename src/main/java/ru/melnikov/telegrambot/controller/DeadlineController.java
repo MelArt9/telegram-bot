@@ -1,5 +1,6 @@
 package ru.melnikov.telegrambot.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import ru.melnikov.telegrambot.dto.DeadlineDto;
@@ -20,7 +21,7 @@ public class DeadlineController {
     }
 
     @PostMapping
-    public DeadlineDto create(@RequestBody DeadlineDto dto) {
+    public DeadlineDto create(@Valid @RequestBody DeadlineDto dto) {
         return deadlineService.create(dto);
     }
 }
