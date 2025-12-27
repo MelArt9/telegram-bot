@@ -26,6 +26,9 @@ public class User extends BaseEntity {
     @Column(name = "last_name")
     private String lastName;
 
+    @Enumerated(EnumType.STRING)
+    private Role role;
+
     @Column(name = "is_active")
     private Boolean isActive = true;
 

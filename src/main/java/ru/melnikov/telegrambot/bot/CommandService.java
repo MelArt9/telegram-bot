@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import ru.melnikov.telegrambot.bot.context.CommandContext;
+import ru.melnikov.telegrambot.model.Role;
 import ru.melnikov.telegrambot.service.*;
 import ru.melnikov.telegrambot.util.DateUtils;
 import ru.melnikov.telegrambot.util.TelegramUtils;
@@ -43,7 +44,7 @@ public class CommandService {
         };
     }
 
-    private SendMessage start(CommandContext ctx) {
+    public SendMessage start(CommandContext ctx) {
         userService.registerIfNotExists(
                 ctx.getUser().getId(),
                 ctx.getUser().getUserName(),
@@ -122,5 +123,11 @@ public class CommandService {
                 .text(text)
                 .replyMarkup(keyboardFactory.defaultKeyboard())
                 .build();
+    }
+
+    private boolean isAdmin(CommandContext ctx) {
+        return userService.findByTelegramId(ctx.getUser().getId())
+                .map(u -> u.getRole() == Role.ADMIN)
+                .orElse(false);
     }
 }

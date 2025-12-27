@@ -2,6 +2,7 @@ package ru.melnikov.telegrambot.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import ru.melnikov.telegrambot.model.Role;
 import ru.melnikov.telegrambot.model.User;
 import ru.melnikov.telegrambot.repository.UserRepository;
 
@@ -35,14 +36,15 @@ public class UserService {
                 .orElseThrow(() -> new ru.melnikov.telegrambot.exception.NotFoundException("User not found: " + id));
     }
 
-    public User registerIfNotExists(Long telegramId, String username, String firstName, String lastName) {
-        return userRepository.findByTelegramId(telegramId)
-                .orElseGet(() -> userRepository.save(User.builder()
-                        .telegramId(telegramId)
-                        .username(username)
-                        .firstName(firstName)
-                        .lastName(lastName)
-                        .isActive(true)
-                        .build()));
+    public void registerIfNotExists(Long tgId, String username, String firstName, String lastName) {
+        if (!userRepository.existsByTelegramId(tgId)) {
+            userRepository.save(User.builder()
+                    .telegramId(tgId)
+                    .username(username)
+                    .firstName(firstName)
+                    .lastName(lastName)
+                    .role(Role.STUDENT)
+                    .build());
+        }
     }
 }
