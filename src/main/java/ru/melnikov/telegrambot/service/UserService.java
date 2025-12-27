@@ -34,4 +34,15 @@ public class UserService {
         return userRepository.findById(id)
                 .orElseThrow(() -> new ru.melnikov.telegrambot.exception.NotFoundException("User not found: " + id));
     }
+
+    public User registerIfNotExists(Long telegramId, String username, String firstName, String lastName) {
+        return userRepository.findByTelegramId(telegramId)
+                .orElseGet(() -> userRepository.save(User.builder()
+                        .telegramId(telegramId)
+                        .username(username)
+                        .firstName(firstName)
+                        .lastName(lastName)
+                        .isActive(true)
+                        .build()));
+    }
 }
