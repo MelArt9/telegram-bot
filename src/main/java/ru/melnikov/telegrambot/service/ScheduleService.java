@@ -6,7 +6,9 @@ import ru.melnikov.telegrambot.dto.ScheduleDto;
 import ru.melnikov.telegrambot.mapper.ScheduleMapper;
 import ru.melnikov.telegrambot.model.Schedule;
 import ru.melnikov.telegrambot.repository.ScheduleRepository;
+import ru.melnikov.telegrambot.util.DateUtils;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @Service
@@ -28,6 +30,12 @@ public class ScheduleService {
                 .stream()
                 .map(scheduleMapper::toDto)
                 .toList();
+    }
+
+    public List<ScheduleDto> findToday() {
+        LocalDate today = LocalDate.now();
+        String weekType = DateUtils.weekTypeForDate(today);
+        return findByDayAndWeekType(today.getDayOfWeek().getValue(), weekType);
     }
 
     public ScheduleDto save(ScheduleDto scheduleDto) {

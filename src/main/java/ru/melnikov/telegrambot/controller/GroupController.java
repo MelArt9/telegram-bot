@@ -2,6 +2,7 @@ package ru.melnikov.telegrambot.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import ru.melnikov.telegrambot.dto.GroupDto;
 import ru.melnikov.telegrambot.mapper.GroupMapper;
@@ -12,6 +13,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/groups")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")
 public class GroupController {
 
     private final GroupService groupService;

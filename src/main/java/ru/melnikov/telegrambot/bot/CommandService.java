@@ -124,10 +124,4 @@ public class CommandService {
                 .replyMarkup(keyboardFactory.defaultKeyboard())
                 .build();
     }
-
-    private boolean isAdmin(CommandContext ctx) {
-        return userService.findByTelegramId(ctx.getUser().getId())
-                .map(u -> u.getRole() == Role.ADMIN)
-                .orElse(false);
-    }
 }

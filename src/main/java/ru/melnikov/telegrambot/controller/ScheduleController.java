@@ -2,6 +2,7 @@ package ru.melnikov.telegrambot.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import ru.melnikov.telegrambot.dto.ScheduleDto;
 import ru.melnikov.telegrambot.service.ScheduleService;
@@ -11,6 +12,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/schedule")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")
 public class ScheduleController {
 
     private final ScheduleService scheduleService;
