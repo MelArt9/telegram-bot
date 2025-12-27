@@ -34,6 +34,7 @@ public class ScheduleDto {
     @NotNull
     private Boolean isOnline;
 
+    @NotNull
     @Pattern(regexp = "odd|even|all", message = "Week type must be odd, even or all")
     private String weekType;
 }
