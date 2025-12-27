@@ -1,8 +1,9 @@
 package ru.melnikov.telegrambot.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-import ru.melnikov.telegrambot.model.Link;
+import ru.melnikov.telegrambot.dto.LinkDto;
 import ru.melnikov.telegrambot.service.LinkService;
 
 import java.util.List;
@@ -15,12 +16,17 @@ public class LinkController {
     private final LinkService linkService;
 
     @GetMapping
-    public List<Link> getAll() {
+    public List<LinkDto> getAll() {
         return linkService.findAll();
     }
 
+    @GetMapping("/user/{userId}")
+    public List<LinkDto> getByUser(@PathVariable Long userId) {
+        return linkService.findByUser(userId);
+    }
+
     @PostMapping
-    public Link create(@RequestBody Link link) {
+    public LinkDto create(@Valid @RequestBody LinkDto link) {
         return linkService.save(link);
     }
 }
