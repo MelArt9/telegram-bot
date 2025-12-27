@@ -1,8 +1,9 @@
 package ru.melnikov.telegrambot.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-import ru.melnikov.telegrambot.model.Schedule;
+import ru.melnikov.telegrambot.dto.ScheduleDto;
 import ru.melnikov.telegrambot.service.ScheduleService;
 
 import java.util.List;
@@ -15,12 +16,12 @@ public class ScheduleController {
     private final ScheduleService scheduleService;
 
     @GetMapping("/day/{day}")
-    public List<Schedule> getByDay(@PathVariable Integer day) {
+    public List<ScheduleDto> getByDay(@PathVariable Integer day) {
         return scheduleService.findByDay(day);
     }
 
     @GetMapping("/day/{day}/week/{type}")
-    public List<Schedule> getByDayAndWeek(
+    public List<ScheduleDto> getByDayAndWeek(
             @PathVariable Integer day,
             @PathVariable String type
     ) {
@@ -28,7 +29,7 @@ public class ScheduleController {
     }
 
     @PostMapping
-    public Schedule create(@RequestBody Schedule schedule) {
-        return scheduleService.save(schedule);
+    public ScheduleDto create(@Valid @RequestBody ScheduleDto scheduleDto) {
+        return scheduleService.save(scheduleDto);
     }
 }

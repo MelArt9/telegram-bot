@@ -1,8 +1,10 @@
 package ru.melnikov.telegrambot.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-import ru.melnikov.telegrambot.model.Group;
+import ru.melnikov.telegrambot.dto.GroupDto;
+import ru.melnikov.telegrambot.mapper.GroupMapper;
 import ru.melnikov.telegrambot.service.GroupService;
 
 import java.util.List;
@@ -13,14 +15,17 @@ import java.util.List;
 public class GroupController {
 
     private final GroupService groupService;
+    private final GroupMapper groupMapper;
 
     @GetMapping
-    public List<Group> getAll() {
-        return groupService.findAll();
+    public List<GroupDto> getAll() {
+        return groupService.findAll().stream()
+                .map(groupMapper::toDto)
+                .toList();
     }
 
     @PostMapping
-    public Group create(@RequestBody Group group) {
-        return groupService.save(group);
+    public GroupDto create(@Valid @RequestBody GroupDto groupDto) {
+        return groupMapper.toDto(groupService.save(groupMapper.toEntity(groupDto)));
     }
 }

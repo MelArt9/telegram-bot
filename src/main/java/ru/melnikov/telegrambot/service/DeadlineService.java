@@ -16,9 +16,17 @@ public class DeadlineService {
 
     private final DeadlineRepository deadlineRepository;
     private final DeadlineMapper deadlineMapper;
+    private final UserService userService;
 
     public List<DeadlineDto> findAll() {
         return deadlineRepository.findAll()
+                .stream()
+                .map(deadlineMapper::toDto)
+                .toList();
+    }
+
+    public List<DeadlineDto> findByUser(Long userId) {
+        return deadlineRepository.findByCreatedBy_Id(userId)
                 .stream()
                 .map(deadlineMapper::toDto)
                 .toList();
@@ -33,6 +41,9 @@ public class DeadlineService {
 
     public DeadlineDto create(DeadlineDto dto) {
         Deadline deadline = deadlineMapper.toEntity(dto);
+        if (dto.getCreatedBy() != null) {
+            deadline.setCreatedBy(userService.getByIdOrThrow(dto.getCreatedBy()));
+        }
         return deadlineMapper.toDto(deadlineRepository.save(deadline));
     }
 }

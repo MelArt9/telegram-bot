@@ -29,4 +29,9 @@ public class UserService {
     public boolean existsByTelegramId(Long telegramId) {
         return userRepository.existsByTelegramId(telegramId);
     }
+
+    public User getByIdOrThrow(Long id) {
+        return userRepository.findById(id)
+                .orElseThrow(() -> new ru.melnikov.telegrambot.exception.NotFoundException("User not found: " + id));
+    }
 }
