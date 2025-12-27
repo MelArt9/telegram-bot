@@ -20,6 +20,11 @@ public class DeadlineController {
         return deadlineService.findAll();
     }
 
+    @GetMapping("/user/{userId}")
+    public List<DeadlineDto> getByUser(@PathVariable Long userId) {
+        return deadlineService.findByUser(userId);
+    }
+
     @PostMapping
     public DeadlineDto create(@Valid @RequestBody DeadlineDto dto) {
         return deadlineService.create(dto);

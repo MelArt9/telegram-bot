@@ -20,6 +20,11 @@ public class LinkController {
         return linkService.findAll();
     }
 
+    @GetMapping("/user/{userId}")
+    public List<LinkDto> getByUser(@PathVariable Long userId) {
+        return linkService.findByUser(userId);
+    }
+
     @PostMapping
     public LinkDto create(@Valid @RequestBody LinkDto link) {
         return linkService.save(link);

@@ -25,6 +25,13 @@ public class DeadlineService {
                 .toList();
     }
 
+    public List<DeadlineDto> findByUser(Long userId) {
+        return deadlineRepository.findByCreatedBy_Id(userId)
+                .stream()
+                .map(deadlineMapper::toDto)
+                .toList();
+    }
+
     public List<DeadlineDto> findUpcoming() {
         return deadlineRepository.findByDeadlineAtAfter(LocalDateTime.now())
                 .stream()

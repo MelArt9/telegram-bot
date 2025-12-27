@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import jakarta.validation.constraints.Future;
 
 @Data
 public class DeadlineDto {
@@ -15,6 +16,7 @@ public class DeadlineDto {
     private String title;
 
     @NotNull
+    @Future
     private LocalDateTime deadlineAt;
     private String description;
     private Long createdBy;
