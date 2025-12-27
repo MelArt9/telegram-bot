@@ -1,10 +1,41 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru" xmlns:th="http://www.thymeleaf.org"
+      th:fragment="layout(content)">
+
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
+    <title>Telegram Admin</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
 </head>
+
 <body>
+
+<div class="app">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="logo">🤖 Telegram Admin</div>
+
+        <nav class="menu">
+            <a th:href="@{/}" class="menu-item">🏠 Главная</a>
+            <a th:href="@{/users}" class="menu-item">👤 Пользователи</a>
+            <a th:href="@{/groups}" class="menu-item">👥 Группы</a>
+            <a th:href="@{/deadlines}" class="menu-item">⏰ Дедлайны</a>
+            <a th:href="@{/links}" class="menu-item">🔗 Ссылки</a>
+            <a th:href="@{/schedule}" class="menu-item">📅 Расписание</a>
+        </nav>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+        <header class="topbar">
+            <h1>Панель управления</h1>
+        </header>
+
+        <section class="content" th:replace="${content}"></section>
+    </main>
+
+</div>
 
 </body>
 </html>

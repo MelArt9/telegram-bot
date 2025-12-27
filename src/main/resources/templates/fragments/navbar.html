@@ -1,10 +1,14 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Title</title>
-</head>
+<html xmlns:th="http://www.thymeleaf.org">
 <body>
-
+<nav class="sidebar-menu" th:fragment="navbar">
+    <ul>
+        <li><a th:href="@{/}">🏠 Главная</a></li>
+        <li><a th:href="@{/deadlines}">📅 Дедлайны</a></li>
+        <li><a th:href="@{/links}">🔗 Ссылки</a></li>
+        <li><a th:href="@{/schedule}">🗓 Расписание</a></li>
+        <li><a th:href="@{/users}">👤 Пользователи</a></li>
+    </ul>
+</nav>
 </body>
 </html>

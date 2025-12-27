@@ -1,22 +1,42 @@
-spring.application.name=telegram-bot
+server:
+  port: 8080
 
-# ===============================
-# DATABASE CONFIGURATION
-# ===============================
-spring.datasource.url=jdbc:postgresql://localhost:5432/MAGA
-spring.datasource.username=postgres
-spring.datasource.password=test
+spring:
+  application:
+    name: telegram-bot
 
-spring.datasource.driver-class-name=org.postgresql.Driver
+  datasource:
+    url: jdbc:postgresql://localhost:5432/MAGA
+    username: postgres
+    password: test
+    driver-class-name: org.postgresql.Driver
 
-# ===============================
-# JPA / HIBERNATE
-# ===============================
-spring.jpa.database-platform=org.hibernate.dialect.PostgreSQLDialect
-spring.jpa.hibernate.ddl-auto=validate
-spring.jpa.show-sql=true
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
 
-# ===============================
-# SERVER
-# ===============================
-server.port=8080
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    mode: HTML
+    cache: false
+
+  web:
+    resources:
+      static-locations: classpath:/static/
+
+logging:
+  level:
+    root: INFO
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+
+telegram:
+  bot:
+    token: YOUR_BOT_TOKEN_HERE
+    username: YOUR_BOT_USERNAME
