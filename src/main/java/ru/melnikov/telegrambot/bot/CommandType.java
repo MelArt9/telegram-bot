@@ -4,25 +4,35 @@ import java.util.Arrays;
 
 public enum CommandType {
 
-    START("/start"),
-    TODAY("/today"),
-    DAY("/day"),
-    DEADLINES("/deadlines"),
-    LINKS("/links"),
-    TAG("/tag"),
-    UNKNOWN("");
+    START("/start", "Начать работу с ботом"),
+    TODAY("/today", "Расписание на сегодня"),
+    DAY("/day", "Расписание на выбранный день"),
+    DEADLINES("/deadlines", "Ближайшие дедлайны"),
+    LINKS("/links", "Полезные ссылки"),
+    TAG("/tag", "Упомянуть группу"),
+    HELP("/help", "Показать список команд"),
+    UNKNOWN("", "");
 
     private final String command;
+    private final String description;
 
-    CommandType(String command) {
+    CommandType(String command, String description) {
         this.command = command;
+        this.description = description;
+    }
+
+    public String getCommand() {
+        return command;
+    }
+
+    public String getDescription() {
+        return description;
     }
 
     public static CommandType fromText(String text) {
-        if (text == null || text.isBlank()) return UNKNOWN;
-
+        if (text == null) return UNKNOWN;
         return Arrays.stream(values())
-                .filter(c -> text.startsWith(c.command))
+                .filter(c -> !c.command.isBlank() && text.startsWith(c.command))
                 .findFirst()
                 .orElse(UNKNOWN);
     }

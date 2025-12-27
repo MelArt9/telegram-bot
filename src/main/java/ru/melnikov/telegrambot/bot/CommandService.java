@@ -9,6 +9,7 @@ import ru.melnikov.telegrambot.util.DateUtils;
 import ru.melnikov.telegrambot.util.TelegramUtils;
 
 import java.time.LocalDate;
+import java.util.Arrays;
 
 @Service
 @RequiredArgsConstructor
@@ -37,6 +38,7 @@ public class CommandService {
             case DEADLINES -> deadlines(ctx);
             case LINKS -> links(ctx);
             case TAG -> tag(ctx);
+            case HELP -> help(ctx);
             default -> unknown(ctx);
         };
     }
@@ -99,6 +101,15 @@ public class CommandService {
         return groupService.findByName(ctx.getArgs()[0])
                 .map(g -> reply(ctx, TelegramUtils.formatMentions(g.getUsers())))
                 .orElse(reply(ctx, "Группа не найдена"));
+    }
+
+    private SendMessage help(CommandContext ctx) {
+        String text = Arrays.stream(CommandType.values())
+                .filter(c -> !c.getCommand().isBlank())
+                .map(c -> c.getCommand() + " — " + c.getDescription())
+                .reduce("📖 Доступные команды:\n\n", (a, b) -> a + b + "\n");
+
+        return reply(ctx, text);
     }
 
     private SendMessage unknown(CommandContext ctx) {
