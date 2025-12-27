@@ -29,9 +29,9 @@ public class TelegramBot extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
         try {
-            SendMessage response = commandRouter.route(update);
-            if (response != null) {
-                execute(response);
+            SendMessage message = commandRouter.route(update);
+            if (message != null) {
+                execute(message);
             }
         } catch (Exception e) {
             log.error("Ошибка обработки апдейта", e);

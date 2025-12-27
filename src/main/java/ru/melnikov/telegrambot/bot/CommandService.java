@@ -1,14 +1,13 @@
 package ru.melnikov.telegrambot.bot;
 
 import lombok.RequiredArgsConstructor;
-import org.jvnet.hk2.annotations.Service;
+import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.objects.User;
+import ru.melnikov.telegrambot.bot.context.CommandContext;
 import ru.melnikov.telegrambot.service.*;
 import ru.melnikov.telegrambot.util.DateUtils;
 import ru.melnikov.telegrambot.util.TelegramUtils;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 
 @Service
@@ -21,67 +20,94 @@ public class CommandService {
     private final LinkService linkService;
     private final GroupService groupService;
     private final KeyboardFactory keyboardFactory;
+    private final CommandLogService commandLogService;
 
-    public SendMessage start(String chatId, User tgUser) {
-        userService.registerIfNotExists(
-                tgUser.getId(),
-                tgUser.getUserName(),
-                tgUser.getFirstName(),
-                tgUser.getLastName()
+    public SendMessage handle(CommandType type, CommandContext ctx) {
+        commandLogService.log(
+                ctx.getUser().getId(),
+                ctx.getUser().getUserName(),
+                type.name(),
+                String.join(" ", ctx.getArgs())
         );
-        return reply(chatId, "Добро пожаловать! Используйте меню ниже.");
+
+        return switch (type) {
+            case START -> start(ctx);
+            case TODAY -> today(ctx);
+            case DAY -> day(ctx);
+            case DEADLINES -> deadlines(ctx);
+            case LINKS -> links(ctx);
+            case TAG -> tag(ctx);
+            default -> unknown(ctx);
+        };
     }
 
-    public SendMessage today(String chatId) {
-        var today = LocalDate.now();
-        var schedule = scheduleService.findByDayAndWeekType(
+    private SendMessage start(CommandContext ctx) {
+        userService.registerIfNotExists(
+                ctx.getUser().getId(),
+                ctx.getUser().getUserName(),
+                ctx.getUser().getFirstName(),
+                ctx.getUser().getLastName()
+        );
+
+        return reply(ctx, "Добро пожаловать! Используйте меню ниже.");
+    }
+
+    private SendMessage today(CommandContext ctx) {
+        LocalDate today = LocalDate.now();
+        var list = scheduleService.findByDayAndWeekType(
                 today.getDayOfWeek().getValue(),
                 DateUtils.weekTypeForDate(today)
         );
 
-        return schedule.isEmpty()
-                ? reply(chatId, "Сегодня занятий нет.")
-                : reply(chatId, TelegramUtils.formatSchedule(today.getDayOfWeek(), schedule));
+        return list.isEmpty()
+                ? reply(ctx, "Сегодня занятий нет.")
+                : reply(ctx, TelegramUtils.formatSchedule(today.getDayOfWeek(), list));
     }
 
-    public SendMessage day(String chatId, String raw) {
-        int day;
+    private SendMessage day(CommandContext ctx) {
         try {
-            day = Integer.parseInt(raw);
-        } catch (Exception e) {
-            return reply(chatId, "Неверный формат. Используй /day 1..7");
-        }
+            int day = Integer.parseInt(ctx.arg(0));
+            var list = scheduleService.findByDay(day);
 
-        var schedule = scheduleService.findByDay(day);
-        return schedule.isEmpty()
-                ? reply(chatId, "На выбранный день занятий нет.")
-                : reply(chatId, TelegramUtils.formatSchedule(DayOfWeek.of(day), schedule));
+            return list.isEmpty()
+                    ? reply(ctx, "На выбранный день занятий нет.")
+                    : reply(ctx, TelegramUtils.formatSchedule(
+                    java.time.DayOfWeek.of(day),
+                    list
+            ));
+        } catch (Exception e) {
+            return reply(ctx, "Используйте формат: /day 1");
+        }
     }
 
-    public SendMessage deadlines(String chatId) {
+    private SendMessage deadlines(CommandContext ctx) {
         var list = deadlineService.findUpcoming();
         return list.isEmpty()
-                ? reply(chatId, "Ближайших дедлайнов нет.")
-                : reply(chatId, TelegramUtils.formatDeadlines(list));
+                ? reply(ctx, "Ближайших дедлайнов нет.")
+                : reply(ctx, TelegramUtils.formatDeadlines(list));
     }
 
-    public SendMessage links(String chatId) {
-        return reply(chatId, TelegramUtils.formatLinks(linkService.findAll()));
+    private SendMessage links(CommandContext ctx) {
+        return reply(ctx, TelegramUtils.formatLinks(linkService.findAll()));
     }
 
-    public SendMessage tag(String chatId, String groupName) {
-        return groupService.findByName(groupName)
-                .map(g -> reply(chatId, TelegramUtils.formatMentions(g.getUsers())))
-                .orElse(reply(chatId, "Группа не найдена"));
+    private SendMessage tag(CommandContext ctx) {
+        if (ctx.getArgs().length < 1) {
+            return reply(ctx, "Укажите группу: /tag group");
+        }
+
+        return groupService.findByName(ctx.getArgs()[0])
+                .map(g -> reply(ctx, TelegramUtils.formatMentions(g.getUsers())))
+                .orElse(reply(ctx, "Группа не найдена"));
     }
 
-    public SendMessage unknown(String chatId) {
-        return reply(chatId, "Неизвестная команда. Используйте /help");
+    private SendMessage unknown(CommandContext ctx) {
+        return reply(ctx, "Неизвестная команда. Используйте /help");
     }
 
-    private SendMessage reply(String chatId, String text) {
+    private SendMessage reply(CommandContext ctx, String text) {
         return SendMessage.builder()
-                .chatId(chatId)
+                .chatId(ctx.getChatId())
                 .text(text)
                 .replyMarkup(keyboardFactory.defaultKeyboard())
                 .build();

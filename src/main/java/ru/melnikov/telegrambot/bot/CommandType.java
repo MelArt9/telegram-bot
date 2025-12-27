@@ -6,10 +6,10 @@ public enum CommandType {
 
     START("/start"),
     TODAY("/today"),
+    DAY("/day"),
     DEADLINES("/deadlines"),
     LINKS("/links"),
     TAG("/tag"),
-    DAY("/day"),
     UNKNOWN("");
 
     private final String command;
@@ -18,14 +18,11 @@ public enum CommandType {
         this.command = command;
     }
 
-    public String getCommand() {
-        return command;
-    }
-
     public static CommandType fromText(String text) {
-        if (text == null) return UNKNOWN;
+        if (text == null || text.isBlank()) return UNKNOWN;
+
         return Arrays.stream(values())
-                .filter(cmd -> text.startsWith(cmd.command))
+                .filter(c -> text.startsWith(c.command))
                 .findFirst()
                 .orElse(UNKNOWN);
     }
