@@ -16,7 +16,6 @@ public class DeadlineService {
 
     private final DeadlineRepository deadlineRepository;
     private final DeadlineMapper deadlineMapper;
-    private final UserService userService;
 
     public List<DeadlineDto> findAll() {
         return deadlineRepository.findAll()
@@ -25,25 +24,33 @@ public class DeadlineService {
                 .toList();
     }
 
-    public List<DeadlineDto> findByUser(Long userId) {
-        return deadlineRepository.findByCreatedBy_Id(userId)
-                .stream()
-                .map(deadlineMapper::toDto)
-                .toList();
+    public List<Deadline> findUpcoming() {
+        return deadlineRepository.findByDeadlineAtAfter(LocalDateTime.now());
     }
 
-    public List<DeadlineDto> findUpcoming() {
-        return deadlineRepository.findByDeadlineAtAfter(LocalDateTime.now())
-                .stream()
+    public DeadlineDto findById(Long id) {
+        return deadlineRepository.findById(id)
                 .map(deadlineMapper::toDto)
-                .toList();
+                .orElseThrow(() -> new RuntimeException("Дедлайн не найден"));
     }
 
-    public DeadlineDto create(DeadlineDto dto) {
-        Deadline deadline = deadlineMapper.toEntity(dto);
-        if (dto.getCreatedBy() != null) {
-            deadline.setCreatedBy(userService.getByIdOrThrow(dto.getCreatedBy()));
+    public DeadlineDto save(DeadlineDto dto) {
+        Deadline entity;
+
+        if (dto.getId() != null) {
+            // обновление
+            entity = deadlineRepository.findById(dto.getId())
+                    .orElseThrow(() -> new RuntimeException("Дедлайн не найден"));
+            deadlineMapper.updateEntity(dto, entity);
+        } else {
+            // создание
+            entity = deadlineMapper.toEntity(dto);
         }
-        return deadlineMapper.toDto(deadlineRepository.save(deadline));
+
+        return deadlineMapper.toDto(deadlineRepository.save(entity));
+    }
+
+    public void delete(Long id) {
+        deadlineRepository.deleteById(id);
     }
 }

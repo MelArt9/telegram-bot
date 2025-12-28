@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import ru.melnikov.telegrambot.bot.context.CommandContext;
-import ru.melnikov.telegrambot.model.Role;
 import ru.melnikov.telegrambot.service.*;
 import ru.melnikov.telegrambot.util.DateUtils;
 import ru.melnikov.telegrambot.util.TelegramUtils;
@@ -85,6 +84,7 @@ public class CommandService {
 
     private SendMessage deadlines(CommandContext ctx) {
         var list = deadlineService.findUpcoming();
+
         return list.isEmpty()
                 ? reply(ctx, "Ближайших дедлайнов нет.")
                 : reply(ctx, TelegramUtils.formatDeadlines(list));

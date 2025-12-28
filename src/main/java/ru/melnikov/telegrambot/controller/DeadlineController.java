@@ -7,7 +7,7 @@ import ru.melnikov.telegrambot.dto.DeadlineDto;
 import ru.melnikov.telegrambot.service.DeadlineService;
 
 @Controller
-@RequestMapping("/deadlines")
+@RequestMapping("/api/deadlines")
 public class DeadlineController {
 
     private final DeadlineService deadlineService;

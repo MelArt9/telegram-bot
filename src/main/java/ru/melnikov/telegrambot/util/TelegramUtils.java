@@ -1,8 +1,8 @@
 package ru.melnikov.telegrambot.util;
 
-import ru.melnikov.telegrambot.dto.DeadlineDto;
 import ru.melnikov.telegrambot.dto.LinkDto;
 import ru.melnikov.telegrambot.dto.ScheduleDto;
+import ru.melnikov.telegrambot.model.Deadline;
 import ru.melnikov.telegrambot.model.User;
 
 import java.time.DayOfWeek;
@@ -33,7 +33,7 @@ public final class TelegramUtils {
         return header + "\n" + body;
     }
 
-    public static String formatDeadlines(List<DeadlineDto> deadlines) {
+    public static String formatDeadlines(List<Deadline> deadlines) {
         return deadlines.stream()
                 .map(deadline -> String.format("• %s — %s", deadline.getTitle(), deadline.getDeadlineAt().format(DATE_TIME_FORMATTER)))
                 .collect(Collectors.joining("\n"));
