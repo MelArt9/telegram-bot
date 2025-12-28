@@ -53,4 +53,27 @@ public class ScheduleService {
                 .orElseThrow(() ->
                         new NotFoundException("Расписание с id=" + id + " не найдено"));
     }
+
+    public ScheduleDto update(ScheduleDto dto) {
+        Schedule existing = scheduleRepository.findById(dto.getId())
+                .orElseThrow(() -> new NotFoundException("Расписание не найдено"));
+
+        existing.setDayOfWeek(dto.getDayOfWeek());
+        existing.setTimeStart(dto.getTimeStart());
+        existing.setTimeEnd(dto.getTimeEnd());
+        existing.setSubject(dto.getSubject());
+        existing.setTeacher(dto.getTeacher());
+        existing.setLocation(dto.getLocation());
+        existing.setWeekType(dto.getWeekType());
+        existing.setIsOnline(dto.getIsOnline());
+
+        return scheduleMapper.toDto(scheduleRepository.save(existing));
+    }
+
+    public void delete(Long id) {
+        if (!scheduleRepository.existsById(id)) {
+            throw new NotFoundException("Расписание с id=" + id + " не найдено");
+        }
+        scheduleRepository.deleteById(id);
+    }
 }

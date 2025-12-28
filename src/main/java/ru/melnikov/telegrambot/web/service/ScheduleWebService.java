@@ -21,4 +21,16 @@ public class ScheduleWebService {
     public Schedule getById(Long id) {
         return scheduleService.findById(id);
     }
+
+    public void save(ScheduleDto dto) {
+        if (dto.getId() == null) {
+            scheduleService.save(dto); // CREATE
+        } else {
+            scheduleService.update(dto); // UPDATE
+        }
+    }
+
+    public void delete(Long id) {
+        scheduleService.delete(id);
+    }
 }

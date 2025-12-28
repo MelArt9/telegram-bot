@@ -504,3 +504,48 @@ body {
     color: #e0a96d;
     text-decoration: underline;
 }
+
+/* ===== SCHEDULE ===== */
+
+.badge-online {
+    background: rgba(34,197,94,0.15);
+    color: #22c55e;
+    padding: 6px 10px;
+    border-radius: 10px;
+    font-size: 13px;
+}
+
+.badge-offline {
+    background: rgba(239,68,68,0.15);
+    color: #ef4444;
+    padding: 6px 10px;
+    border-radius: 10px;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+}
+
+.form-group input,
+.form-group select {
+    background: #020617;
+    border: 1px solid #1e293b;
+    padding: 12px;
+    border-radius: 10px;
+    color: #e5e7eb;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: #6366f1;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 16px;
+    margin-top: 32px;
+}

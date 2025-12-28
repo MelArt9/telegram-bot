@@ -5,6 +5,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import ru.melnikov.telegrambot.dto.ScheduleDto;
 import ru.melnikov.telegrambot.web.service.ScheduleWebService;
 
 @Controller
@@ -25,5 +26,23 @@ public class ScheduleWebController {
     public String edit(@PathVariable Long id, Model model) {
         model.addAttribute("schedule", scheduleWebService.getById(id));
         return "schedule/edit";
+    }
+
+    @GetMapping("/new")
+    public String createForm(Model model) {
+        model.addAttribute("schedule", new ScheduleDto());
+        return "schedule/edit";
+    }
+
+    @PostMapping
+    public String save(@ModelAttribute ScheduleDto dto) {
+        scheduleWebService.save(dto);
+        return "redirect:/schedule";
+    }
+
+    @PostMapping("/{id}/delete")
+    public String delete(@PathVariable Long id) {
+        scheduleWebService.delete(id);
+        return "redirect:/schedule";
     }
 }
