@@ -1,10 +1,47 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Title</title>
-</head>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="layout :: layout(~{::body})">
+
 <body>
+
+<div class="page-container">
+
+    <div class="page-header">
+        <h1 th:text="${group.id == null ? 'Создание группы' : 'Редактирование группы'}"></h1>
+        <p class="subtitle">Настройка параметров группы</p>
+    </div>
+
+    <div class="form-card">
+
+        <form th:action="@{/groups}" th:object="${group}" method="post">
+
+            <input type="hidden" th:field="*{id}"/>
+
+            <div class="form-grid">
+
+                <div class="form-group">
+                    <label>Название группы</label>
+                    <input type="text" th:field="*{name}" placeholder="Название группы" required>
+                </div>
+
+                <div class="form-group full">
+                    <label>Описание</label>
+                    <textarea th:field="*{description}" rows="3"
+                              placeholder="Описание группы"></textarea>
+                </div>
+
+            </div>
+
+            <div class="form-actions">
+                <a href="/groups" class="btn-secondary">Отмена</a>
+                <button type="submit" class="btn-primary">💾 Сохранить</button>
+            </div>
+
+        </form>
+
+    </div>
+
+</div>
 
 </body>
 </html>

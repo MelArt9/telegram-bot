@@ -32,4 +32,11 @@ public class GroupService {
                 .orElseThrow(() ->
                         new NotFoundException("Группа с id=" + id + " не найдена"));
     }
+
+    public void delete(Long id) {
+        if (!groupRepository.existsById(id)) {
+            throw new NotFoundException("Группа с id=" + id + " не найдена");
+        }
+        groupRepository.deleteById(id);
+    }
 }

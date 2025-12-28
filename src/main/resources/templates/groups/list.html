@@ -1,10 +1,48 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Title</title>
-</head>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="layout :: layout(~{::body})">
+
 <body>
+
+<div class="page-header">
+    <div class="page-title">
+        <h1>Группы</h1>
+        <p class="subtitle">Управление учебными и рабочими группами</p>
+    </div>
+
+    <a href="/groups/new" class="btn-primary">
+        + Добавить группу
+    </a>
+</div>
+
+<div class="table-wrapper">
+    <table class="table">
+        <thead>
+        <tr>
+            <th>ID</th>
+            <th>Название</th>
+            <th>Описание</th>
+            <th class="actions">Действия</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="group : ${groups}">
+            <td th:text="${group.id}"></td>
+            <td th:text="${group.name}"></td>
+            <td th:text="${group.description}"></td>
+            <td class="actions">
+                <a th:href="@{/groups/{id}(id=${group.id})}" class="icon-btn edit">✏️</a>
+                <form th:action="@{/groups/{id}/delete(id=${group.id})}" method="post" class="inline-form"
+                      onsubmit="return confirm('Удалить группу?');">
+                    <button type="submit" class="icon-btn delete">🗑</button>
+                </form>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+
+<script src="/js/groups.js"></script>
 
 </body>
 </html>
