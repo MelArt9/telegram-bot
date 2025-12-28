@@ -1,11 +1,10 @@
 <!DOCTYPE html>
-<html lang="ru" xmlns:th="http://www.thymeleaf.org"
-      th:fragment="layout(content)">
-
+<html lang="ru" xmlns:th="http://www.thymeleaf.org" th:fragment="layout(content)">
 <head>
     <meta charset="UTF-8">
     <title>Telegram Admin</title>
     <link rel="stylesheet" th:href="@{/css/style.css}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 
 <body>
@@ -14,19 +13,21 @@
 
     <!-- SIDEBAR -->
     <aside class="sidebar">
-        <div class="logo">🤖 Telegram Admin</div>
+        <div class="logo">
+            🤖 <span>Telegram Admin</span>
+        </div>
 
-        <nav class="menu">
-            <a th:href="@{/}" class="menu-item">🏠 Главная</a>
-            <a th:href="@{/users}" class="menu-item">👤 Пользователи</a>
-            <a th:href="@{/groups}" class="menu-item">👥 Группы</a>
-            <a th:href="@{/deadlines}" class="menu-item">⏰ Дедлайны</a>
-            <a th:href="@{/links}" class="menu-item">🔗 Ссылки</a>
-            <a th:href="@{/schedule}" class="menu-item">📅 Расписание</a>
+        <nav class="nav">
+            <a th:href="@{/}" class="nav-item">🏠 Главная</a>
+            <a th:href="@{/users}" class="nav-item">👤 Пользователи</a>
+            <a th:href="@{/groups}" class="nav-item">👥 Группы</a>
+            <a th:href="@{/deadlines}" class="nav-item">⏰ Дедлайны</a>
+            <a th:href="@{/links}" class="nav-item">🔗 Ссылки</a>
+            <a th:href="@{/schedule}" class="nav-item">📅 Расписание</a>
         </nav>
     </aside>
 
-    <!-- MAIN -->
+    <!-- CONTENT -->
     <main class="main">
         <header class="topbar">
             <h1>Панель управления</h1>
@@ -37,5 +38,6 @@
 
 </div>
 
+<script src="/js/app.js"></script>
 </body>
 </html>

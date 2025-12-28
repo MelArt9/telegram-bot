@@ -1,10 +1,6 @@
-document.addEventListener("DOMContentLoaded", () => {
-    console.log("Admin panel loaded");
-
-    // пример будущей логики
-    document.querySelectorAll(".card").forEach(card => {
-        card.addEventListener("mouseenter", () => {
-            card.style.cursor = "pointer";
-        });
+document.querySelectorAll(".card").forEach(card => {
+    card.addEventListener("click", () => {
+        card.classList.add("active");
+        setTimeout(() => card.classList.remove("active"), 200);
     });
 });

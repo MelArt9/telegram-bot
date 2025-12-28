@@ -4,35 +4,75 @@
 
 <body>
 
-<div class="form-container">
-    <h2 th:text="${user.id == null ? 'Создание пользователя' : 'Редактирование пользователя'}"></h2>
+<div class="page-container">
 
-    <form th:action="@{/users}" method="post">
-        <input type="number" th:field="*{user.telegramId}" required>
-        <input type="hidden" th:field="${user.id}"/>
+    <div class="page-header">
+        <h1 th:text="${user.id == null ? 'Создание пользователя' : 'Редактирование пользователя'}"></h1>
+        <p class="subtitle">Управление данными пользователя</p>
+    </div>
 
-        <label>Никнейм</label>
-        <input type="text" th:field="${user.username}" required>
+    <div class="form-card">
 
-        <label>Имя</label>
-        <input type="text" th:field="${user.firstName}" required>
+        <form th:action="@{/users}" th:object="${user}" method="post">
 
-        <label>Фамилия</label>
-        <input type="text" th:field="${user.lastName}" required>
+            <!-- ID (скрыто) -->
+            <input type="hidden" th:field="*{id}"/>
 
-        <label>Роль</label>
-        <select th:field="*{user.role}">
-            <option th:each="r : ${T(ru.melnikov.telegrambot.model.Role).values()}"
-                    th:value="${r}"
-                    th:text="${r}">
-            </option>
-        </select>
+            <div class="form-grid">
 
-        <div class="form-actions">
-            <button type="submit" class="btn-primary">Сохранить</button>
-            <a href="/users" class="btn-secondary">Отмена</a>
-        </div>
-    </form>
+                <div class="form-group">
+                    <label>Telegram ID</label>
+                    <input type="number"
+                           th:field="*{telegramId}"
+                           placeholder="Введите Telegram ID"
+                           required>
+                </div>
+
+                <div class="form-group">
+                    <label>Никнейм</label>
+                    <input type="text"
+                           th:field="*{username}"
+                           placeholder="@username"
+                           required>
+                </div>
+
+                <div class="form-group">
+                    <label>Имя</label>
+                    <input type="text"
+                           th:field="*{firstName}"
+                           placeholder="Имя"
+                           required>
+                </div>
+
+                <div class="form-group">
+                    <label>Фамилия</label>
+                    <input type="text"
+                           th:field="*{lastName}"
+                           placeholder="Фамилия"
+                           required>
+                </div>
+
+                <div class="form-group full">
+                    <label>Роль</label>
+                    <select th:field="*{role}">
+                        <option th:each="r : ${T(ru.melnikov.telegrambot.model.Role).values()}"
+                                th:value="${r}"
+                                th:text="${r}">
+                        </option>
+                    </select>
+                </div>
+
+            </div>
+
+            <div class="form-actions">
+                <a href="/users" class="btn-secondary">Отмена</a>
+                <button type="submit" class="btn-primary">💾 Сохранить</button>
+            </div>
+
+        </form>
+
+    </div>
+
 </div>
 
 </body>
