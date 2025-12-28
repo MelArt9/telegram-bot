@@ -492,3 +492,15 @@ body {
     background: rgba(239,68,68,0.15);
     color: #ef4444;
 }
+
+.table a {
+    color: #c08457; /* шоколадный */
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+
+.table a:hover {
+    color: #e0a96d;
+    text-decoration: underline;
+}

@@ -1,10 +1,52 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Title</title>
-</head>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="layout :: layout(~{::body})">
+
 <body>
+
+<div class="page-header">
+    <div class="page-title">
+        <h1>Ссылки</h1>
+        <p class="subtitle">Управление полезными ссылками</p>
+    </div>
+
+    <a href="/links/new" class="btn-primary">
+        + Добавить ссылку
+    </a>
+</div>
+
+<div class="table-wrapper">
+    <table class="table">
+        <thead>
+        <tr>
+            <th>ID</th>
+            <th>Название</th>
+            <th>URL</th>
+            <th>Автор</th>
+            <th class="actions">Действия</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="link : ${links}">
+            <td th:text="${link.id}"></td>
+            <td th:text="${link.title}"></td>
+            <td>
+                <a th:href="${link.url}" target="_blank" th:text="${link.url}"></a>
+            </td>
+            <td th:text="${link.createdBy}"></td>
+            <td class="actions">
+                <a th:href="@{/links/{id}(id=${link.id})}" class="icon-btn edit">✏️</a>
+                <form th:action="@{/links/{id}/delete(id=${link.id})}"
+                      method="post"
+                      class="inline-form"
+                      onsubmit="return confirm('Удалить ссылку?');">
+                    <button type="submit" class="icon-btn delete">🗑</button>
+                </form>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+</div>
 
 </body>
 </html>

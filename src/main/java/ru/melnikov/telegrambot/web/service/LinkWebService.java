@@ -3,7 +3,6 @@ package ru.melnikov.telegrambot.web.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import ru.melnikov.telegrambot.dto.LinkDto;
-import ru.melnikov.telegrambot.model.Link;
 import ru.melnikov.telegrambot.service.LinkService;
 
 import java.util.List;
@@ -18,7 +17,15 @@ public class LinkWebService {
         return linkService.findAll();
     }
 
-    public Link getById(Long id) {
+    public LinkDto getById(Long id) {
         return linkService.findById(id);
+    }
+
+    public void save(LinkDto dto) {
+        linkService.save(dto);
+    }
+
+    public void delete(Long id) {
+        linkService.delete(id);
     }
 }

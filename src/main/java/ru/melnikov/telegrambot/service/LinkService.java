@@ -3,7 +3,6 @@ package ru.melnikov.telegrambot.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import ru.melnikov.telegrambot.dto.LinkDto;
-import ru.melnikov.telegrambot.exception.NotFoundException;
 import ru.melnikov.telegrambot.mapper.LinkMapper;
 import ru.melnikov.telegrambot.model.Link;
 import ru.melnikov.telegrambot.repository.LinkRepository;
@@ -26,9 +25,26 @@ public class LinkService {
     }
 
     public LinkDto save(LinkDto dto) {
-        Link link = linkMapper.toEntity(dto);
-        link.setCreatedBy(userService.getByIdOrThrow(dto.getCreatedBy()));
-        return linkMapper.toDto(linkRepository.save(link));
+        Link entity = linkMapper.toEntity(dto);
+        entity.setCreatedBy(userService.getByIdOrThrow(dto.getCreatedBy()));
+        return linkMapper.toDto(linkRepository.save(entity));
+    }
+
+    public LinkDto create(LinkDto dto) {
+        Link entity = linkMapper.toEntity(dto);
+        entity.setCreatedBy(userService.getByIdOrThrow(dto.getCreatedBy()));
+        return linkMapper.toDto(linkRepository.save(entity));
+    }
+
+    public LinkDto update(Long id, LinkDto dto) {
+        Link existing = linkRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Ссылка не найдена"));
+
+        existing.setTitle(dto.getTitle());
+        existing.setUrl(dto.getUrl());
+        // createdBy НЕ меняем!
+
+        return linkMapper.toDto(linkRepository.save(existing));
     }
 
     public List<LinkDto> findByUser(Long userId) {
@@ -38,9 +54,13 @@ public class LinkService {
                 .toList();
     }
 
-    public Link findById(Long id) {
+    public LinkDto findById(Long id) {
         return linkRepository.findById(id)
-                .orElseThrow(() ->
-                        new NotFoundException("Ссылка с id=" + id + " не найдена"));
+                .map(linkMapper::toDto)
+                .orElseThrow(() -> new RuntimeException("Ссылка не найдена"));
+    }
+
+    public void delete(Long id) {
+        linkRepository.deleteById(id);
     }
 }
