@@ -5,11 +5,6 @@ import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import ru.melnikov.telegrambot.bot.context.CommandContext;
 import ru.melnikov.telegrambot.service.*;
-import ru.melnikov.telegrambot.util.DateUtils;
-import ru.melnikov.telegrambot.util.TelegramUtils;
-
-import java.time.LocalDate;
-import java.util.Arrays;
 
 @Service
 @RequiredArgsConstructor
@@ -21,16 +16,8 @@ public class CommandService {
     private final LinkService linkService;
     private final GroupService groupService;
     private final KeyboardFactory keyboardFactory;
-    private final CommandLogService commandLogService;
 
     public SendMessage handle(CommandType type, CommandContext ctx) {
-        commandLogService.log(
-                ctx.getUser().getId(),
-                ctx.getUser().getUserName(),
-                type.name(),
-                String.join(" ", ctx.getArgs())
-        );
-
         return switch (type) {
             case START -> start(ctx);
             case TODAY -> today(ctx);
@@ -43,78 +30,8 @@ public class CommandService {
         };
     }
 
-    public SendMessage start(CommandContext ctx) {
-        userService.registerIfNotExists(
-                ctx.getUser().getId(),
-                ctx.getUser().getUserName(),
-                ctx.getUser().getFirstName(),
-                ctx.getUser().getLastName()
-        );
-
-        return reply(ctx, "Добро пожаловать! Используйте меню ниже.");
-    }
-
-    private SendMessage today(CommandContext ctx) {
-        LocalDate today = LocalDate.now();
-        var list = scheduleService.findByDayAndWeekType(
-                today.getDayOfWeek().getValue(),
-                DateUtils.weekTypeForDate(today)
-        );
-
-        return list.isEmpty()
-                ? reply(ctx, "Сегодня занятий нет.")
-                : reply(ctx, TelegramUtils.formatSchedule(today.getDayOfWeek(), list));
-    }
-
-    private SendMessage day(CommandContext ctx) {
-        try {
-            int day = Integer.parseInt(ctx.arg(0));
-            var list = scheduleService.findByDay(day);
-
-            return list.isEmpty()
-                    ? reply(ctx, "На выбранный день занятий нет.")
-                    : reply(ctx, TelegramUtils.formatSchedule(
-                    java.time.DayOfWeek.of(day),
-                    list
-            ));
-        } catch (Exception e) {
-            return reply(ctx, "Используйте формат: /day 1");
-        }
-    }
-
-    private SendMessage deadlines(CommandContext ctx) {
-        var list = deadlineService.findUpcoming();
-
-        return list.isEmpty()
-                ? reply(ctx, "Ближайших дедлайнов нет.")
-                : reply(ctx, TelegramUtils.formatDeadlines(list));
-    }
-
-    private SendMessage links(CommandContext ctx) {
-        return reply(ctx, TelegramUtils.formatLinks(linkService.findAll()));
-    }
-
-    private SendMessage tag(CommandContext ctx) {
-        if (ctx.getArgs().length < 1) {
-            return reply(ctx, "Укажите группу: /tag group");
-        }
-
-        return groupService.findByName(ctx.getArgs()[0])
-                .map(g -> reply(ctx, TelegramUtils.formatMentions(g.getUsers())))
-                .orElse(reply(ctx, "Группа не найдена"));
-    }
-
-    private SendMessage help(CommandContext ctx) {
-        String text = Arrays.stream(CommandType.values())
-                .filter(c -> !c.getCommand().isBlank())
-                .map(c -> c.getCommand() + " — " + c.getDescription())
-                .reduce("📖 Доступные команды:\n\n", (a, b) -> a + b + "\n");
-
-        return reply(ctx, text);
-    }
-
     private SendMessage unknown(CommandContext ctx) {
-        return reply(ctx, "Неизвестная команда. Используйте /help");
+        return reply(ctx, "Неизвестная команда. Введите /help");
     }
 
     private SendMessage reply(CommandContext ctx, String text) {
@@ -123,5 +40,69 @@ public class CommandService {
                 .text(text)
                 .replyMarkup(keyboardFactory.defaultKeyboard())
                 .build();
+    }
+
+    private SendMessage start(CommandContext ctx) {
+        userService.registerIfNotExists(
+                ctx.getUser().getId(),
+                ctx.getUser().getUserName(),
+                ctx.getUser().getFirstName(),
+                ctx.getUser().getLastName()
+        );
+        return reply(ctx, "Привет! 👋 Я готов к работе.");
+    }
+
+    private SendMessage today(CommandContext ctx) {
+        var list = scheduleService.findToday();
+        return list.isEmpty()
+                ? reply(ctx, "Сегодня занятий нет")
+                : reply(ctx, "📅 Сегодня:\n" + list);
+    }
+
+    private SendMessage day(CommandContext ctx) {
+        try {
+            int day = Integer.parseInt(ctx.arg(1));
+            return reply(ctx, scheduleService.findByDay(day).toString());
+        } catch (Exception e) {
+            return reply(ctx, "Используй: /day 1");
+        }
+    }
+
+    private SendMessage deadlines(CommandContext ctx) {
+        return reply(ctx, deadlineService.formatDeadlines());
+    }
+
+    private SendMessage links(CommandContext ctx) {
+        return reply(ctx, linkService.formatLinks());
+    }
+
+    private SendMessage tag(CommandContext ctx) {
+        if (ctx.getArgs().length < 2) {
+            return reply(ctx, "Использование: /tag <название_группы>");
+        }
+
+        return groupService.findByName(ctx.getArgs()[1])
+                .map(group -> {
+                    if (group.getUsers().isEmpty()) {
+                        return reply(ctx, "В группе нет участников");
+                    }
+                    String users = group.getUsers().stream()
+                            .map(u -> "@" + u.getUsername())
+                            .reduce("", (a, b) -> a + "\n" + b);
+                    return reply(ctx, "Участники группы:\n" + users);
+                })
+                .orElse(reply(ctx, "Группа не найдена"));
+    }
+
+    private SendMessage help(CommandContext ctx) {
+        return reply(ctx, """
+                📘 Команды:
+                /start – старт
+                /today – расписание
+                /day N – день недели
+                /deadlines – дедлайны
+                /links – ссылки
+                /tag группа – упомянуть группу
+                """);
     }
 }

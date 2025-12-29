@@ -53,4 +53,24 @@ public class DeadlineService {
     public void delete(Long id) {
         deadlineRepository.deleteById(id);
     }
+
+    public String formatDeadlines() {
+        var list = deadlineRepository.findAll();
+
+        if (list.isEmpty()) {
+            return "📭 Дедлайнов нет";
+        }
+
+        StringBuilder sb = new StringBuilder("📌 Ближайшие дедлайны:\n\n");
+
+        for (var d : list) {
+            sb.append("• ")
+                    .append(d.getTitle())
+                    .append(" — ")
+                    .append(d.getDeadlineAt())
+                    .append("\n");
+        }
+
+        return sb.toString();
+    }
 }

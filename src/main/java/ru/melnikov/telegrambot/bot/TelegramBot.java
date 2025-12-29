@@ -13,23 +13,23 @@ import ru.melnikov.telegrambot.config.BotConfig;
 @RequiredArgsConstructor
 public class TelegramBot extends TelegramLongPollingBot {
 
-    private final BotConfig botConfig;
-    private final CommandRouter commandRouter;
+    private final BotConfig config;
+    private final CommandRouter router;
 
     @Override
     public String getBotUsername() {
-        return botConfig.getUsername();
+        return config.getUsername();
     }
 
     @Override
     public String getBotToken() {
-        return botConfig.getToken();
+        return config.getToken();
     }
 
     @Override
     public void onUpdateReceived(Update update) {
         try {
-            SendMessage message = commandRouter.route(update);
+            SendMessage message = router.route(update);
             if (message != null) {
                 execute(message);
             }

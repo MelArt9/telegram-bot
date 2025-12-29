@@ -3,14 +3,13 @@ package ru.melnikov.telegrambot.bot;
 import java.util.Arrays;
 
 public enum CommandType {
-
-    START("/start", "Начать работу с ботом"),
+    START("/start", "Начать работу"),
     TODAY("/today", "Расписание на сегодня"),
-    DAY("/day", "Расписание на выбранный день"),
+    DAY("/day", "Расписание по дню"),
     DEADLINES("/deadlines", "Ближайшие дедлайны"),
     LINKS("/links", "Полезные ссылки"),
     TAG("/tag", "Упомянуть группу"),
-    HELP("/help", "Показать список команд"),
+    HELP("/help", "Помощь"),
     UNKNOWN("", "");
 
     private final String command;
@@ -32,7 +31,7 @@ public enum CommandType {
     public static CommandType fromText(String text) {
         if (text == null) return UNKNOWN;
         return Arrays.stream(values())
-                .filter(c -> !c.command.isBlank() && text.startsWith(c.command))
+                .filter(c -> !c.command.isEmpty() && text.startsWith(c.command))
                 .findFirst()
                 .orElse(UNKNOWN);
     }

@@ -18,9 +18,9 @@ public class CommandRouter {
         String text = update.getMessage().getText();
         if (text == null) return null;
 
-        CommandType command = CommandType.fromText(text);
+        CommandType type = CommandType.fromText(text);
 
-        CommandContext context = CommandContext.builder()
+        CommandContext ctx = CommandContext.builder()
                 .update(update)
                 .chatId(update.getMessage().getChatId())
                 .user(update.getMessage().getFrom())
@@ -28,6 +28,6 @@ public class CommandRouter {
                 .args(text.split("\\s+"))
                 .build();
 
-        return commandService.handle(command, context);
+        return commandService.handle(type, ctx);
     }
 }

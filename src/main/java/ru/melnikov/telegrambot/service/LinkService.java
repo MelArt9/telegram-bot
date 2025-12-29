@@ -63,4 +63,23 @@ public class LinkService {
     public void delete(Long id) {
         linkRepository.deleteById(id);
     }
+
+    public String formatLinks() {
+        var links = linkRepository.findAll();
+
+        if (links.isEmpty()) {
+            return "🔗 Ссылки отсутствуют";
+        }
+
+        StringBuilder sb = new StringBuilder("🔗 Полезные ссылки:\n\n");
+        links.forEach(l ->
+                sb.append("• ")
+                        .append(l.getTitle())
+                        .append(" — ")
+                        .append(l.getUrl())
+                        .append("\n")
+        );
+
+        return sb.toString();
+    }
 }
