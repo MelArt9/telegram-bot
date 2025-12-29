@@ -33,6 +33,16 @@ public class GroupService {
                         new NotFoundException("Группа с id=" + id + " не найдена"));
     }
 
+    public Group update(Long id, Group updatedGroup) {
+        Group existing = groupRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Группа не найдена"));
+
+        existing.setName(updatedGroup.getName());
+        existing.setDescription(updatedGroup.getDescription());
+
+        return groupRepository.save(existing);
+    }
+
     public void delete(Long id) {
         if (!groupRepository.existsById(id)) {
             throw new NotFoundException("Группа с id=" + id + " не найдена");

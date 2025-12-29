@@ -34,7 +34,7 @@
                 <a th:href="@{/groups/{id}(id=${group.id})}" class="icon-btn edit">✏️</a>
                 <form th:action="@{/groups/{id}/delete(id=${group.id})}" method="post" class="inline-form"
                       onsubmit="return confirm('Удалить группу?');">
-                    <button type="submit" class="icon-btn delete">🗑</button>
+                    <button type="submit" class="icon-btn delete">🗑️</button>
                 </form>
             </td>
         </tr>
