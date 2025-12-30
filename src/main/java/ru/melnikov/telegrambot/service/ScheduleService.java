@@ -26,11 +26,21 @@ public class ScheduleService {
                 .toList();
     }
 
+    // Добавляем метод для Telegram бота, возвращающий сущности
+    public List<Schedule> findEntitiesByDay(Integer dayOfWeek) {
+        return scheduleRepository.findByDayOfWeek(dayOfWeek);
+    }
+
     public List<ScheduleDto> findByDayAndWeekType(Integer day, String weekType) {
         return scheduleRepository.findByDayOfWeekAndWeekType(day, weekType)
                 .stream()
                 .map(scheduleMapper::toDto)
                 .toList();
+    }
+
+    // Добавляем метод для Telegram бота, возвращающий сущности
+    public List<Schedule> findEntitiesByDayAndWeekType(Integer day, String weekType) {
+        return scheduleRepository.findByDayOfWeekAndWeekType(day, weekType);
     }
 
     public List<ScheduleDto> findToday() {
@@ -39,24 +49,41 @@ public class ScheduleService {
         return findByDayAndWeekType(today.getDayOfWeek().getValue(), weekType);
     }
 
+    // Добавляем метод для Telegram бота, возвращающий сущности
+    public List<Schedule> findEntitiesToday() {
+        LocalDate today = LocalDate.now();
+        String weekType = DateUtils.weekTypeForDate(today);
+        return findEntitiesByDayAndWeekType(today.getDayOfWeek().getValue(), weekType);
+    }
+
     public ScheduleDto save(ScheduleDto scheduleDto) {
         Schedule schedule = scheduleMapper.toEntity(scheduleDto);
         return scheduleMapper.toDto(scheduleRepository.save(schedule));
     }
 
-    public List<Schedule> findAll() {
+    public List<Schedule> findAllEntities() {
         return scheduleRepository.findAll();
     }
 
-    public Schedule findById(Long id) {
+    public List<ScheduleDto> findAll() {
+        return scheduleRepository.findAll()
+                .stream()
+                .map(scheduleMapper::toDto)
+                .toList();
+    }
+
+    public Schedule findEntityById(Long id) {
         return scheduleRepository.findById(id)
                 .orElseThrow(() ->
                         new NotFoundException("Расписание с id=" + id + " не найдено"));
     }
 
+    public ScheduleDto findById(Long id) {
+        return scheduleMapper.toDto(findEntityById(id));
+    }
+
     public ScheduleDto update(ScheduleDto dto) {
-        Schedule existing = scheduleRepository.findById(dto.getId())
-                .orElseThrow(() -> new NotFoundException("Расписание не найдено"));
+        Schedule existing = findEntityById(dto.getId());
 
         existing.setDayOfWeek(dto.getDayOfWeek());
         existing.setTimeStart(dto.getTimeStart());

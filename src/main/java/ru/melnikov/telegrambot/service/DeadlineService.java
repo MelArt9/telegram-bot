@@ -6,8 +6,10 @@ import ru.melnikov.telegrambot.dto.DeadlineDto;
 import ru.melnikov.telegrambot.mapper.DeadlineMapper;
 import ru.melnikov.telegrambot.model.Deadline;
 import ru.melnikov.telegrambot.repository.DeadlineRepository;
+import ru.melnikov.telegrambot.util.DeadlineFormatter;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 
 @Service
@@ -25,7 +27,15 @@ public class DeadlineService {
     }
 
     public List<Deadline> findUpcoming() {
-        return deadlineRepository.findByDeadlineAtAfter(LocalDateTime.now());
+        List<Deadline> deadlines = deadlineRepository.findByDeadlineAtAfter(LocalDateTime.now());
+        deadlines.sort(Comparator.comparing(Deadline::getDeadlineAt));
+        return deadlines;
+    }
+
+    public List<Deadline> findAllDeadlines() {
+        List<Deadline> deadlines = deadlineRepository.findAll();
+        deadlines.sort(Comparator.comparing(Deadline::getDeadlineAt));
+        return deadlines;
     }
 
     public DeadlineDto findById(Long id) {
@@ -55,22 +65,12 @@ public class DeadlineService {
     }
 
     public String formatDeadlines() {
-        var list = deadlineRepository.findAll();
+        var list = findAllDeadlines();
+        return DeadlineFormatter.formatDeadlines(list);
+    }
 
-        if (list.isEmpty()) {
-            return "📭 Дедлайнов нет";
-        }
-
-        StringBuilder sb = new StringBuilder("📌 Ближайшие дедлайны:\n\n");
-
-        for (var d : list) {
-            sb.append("• ")
-                    .append(d.getTitle())
-                    .append(" — ")
-                    .append(d.getDeadlineAt())
-                    .append("\n");
-        }
-
-        return sb.toString();
+    public String formatUpcomingDeadlines() {
+        var list = findUpcoming();
+        return DeadlineFormatter.formatDeadlines(list);
     }
 }

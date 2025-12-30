@@ -29,9 +29,20 @@ public enum CommandType {
     }
 
     public static CommandType fromText(String text) {
-        if (text == null) return UNKNOWN;
+        if (text == null || text.trim().isEmpty()) return UNKNOWN;
+
+        String trimmed = text.trim();
+
+        // Обработка кнопок
+        if (trimmed.equals("📅 Сегодня")) return TODAY;
+        if (trimmed.equals("⏰ Дедлайны")) return DEADLINES;
+        if (trimmed.equals("🔗 Ссылки")) return LINKS;
+        if (trimmed.equals("👥 Упомянуть всех")) return TAG;
+        if (trimmed.equals("❓ Помощь")) return HELP;
+
+        // Обработка обычных команд
         return Arrays.stream(values())
-                .filter(c -> !c.command.isEmpty() && text.startsWith(c.command))
+                .filter(c -> !c.command.isEmpty() && trimmed.startsWith(c.command))
                 .findFirst()
                 .orElse(UNKNOWN);
     }

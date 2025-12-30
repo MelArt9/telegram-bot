@@ -18,12 +18,14 @@ public class ScheduleWebController {
 
     @GetMapping
     public String list(Model model) {
+        // Теперь getAll() возвращает List<Schedule>
         model.addAttribute("schedule", scheduleWebService.getAll());
         return "schedule/list";
     }
 
     @GetMapping("/{id}")
     public String edit(@PathVariable Long id, Model model) {
+        // Теперь getById() возвращает Schedule
         model.addAttribute("schedule", scheduleWebService.getById(id));
         return "schedule/edit";
     }

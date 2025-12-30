@@ -38,5 +38,6 @@ logging:
 
 telegram:
   bot:
+    enabled: true
     token: 8512371848:AAEqIbcRIEa7mVnCw_mGpU9DyQPyqnYwB0A
     username: pisms_guardian_bot

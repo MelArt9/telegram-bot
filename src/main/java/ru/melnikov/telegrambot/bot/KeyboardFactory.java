@@ -12,18 +12,23 @@ public class KeyboardFactory {
 
     public ReplyKeyboardMarkup defaultKeyboard() {
         KeyboardRow row1 = new KeyboardRow(List.of(
-                KeyboardButton.builder().text("/today").build(),
-                KeyboardButton.builder().text("/deadlines").build()
+                KeyboardButton.builder().text("📅 Сегодня").build(),
+                KeyboardButton.builder().text("⏰ Дедлайны").build()
         ));
 
         KeyboardRow row2 = new KeyboardRow(List.of(
-                KeyboardButton.builder().text("/links").build(),
-                KeyboardButton.builder().text("/tag all").build()
+                KeyboardButton.builder().text("🔗 Ссылки").build(),
+                KeyboardButton.builder().text("👥 Упомянуть всех").build()
         ));
 
-        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2));
+        KeyboardRow row3 = new KeyboardRow(List.of(
+                KeyboardButton.builder().text("❓ Помощь").build()
+        ));
+
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3));
         markup.setResizeKeyboard(true);
         markup.setSelective(true);
+        markup.setOneTimeKeyboard(false);
         return markup;
     }
 }
