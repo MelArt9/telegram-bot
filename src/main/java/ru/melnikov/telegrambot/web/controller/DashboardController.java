@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 @PreAuthorize("hasRole('ADMIN')")
 public class DashboardController {
 
+    //
     @GetMapping
     public String dashboard() {
         return "dashboard";
