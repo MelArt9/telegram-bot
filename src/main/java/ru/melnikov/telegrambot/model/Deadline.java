@@ -21,6 +21,12 @@ public class Deadline extends BaseEntity {
 
     private String description;
 
+    @Column(name = "link_url")
+    private String linkUrl;
+
+    @Column(name = "link_text")
+    private String linkText;
+
     @ManyToOne
     @JoinColumn(name = "created_by")
     private User createdBy;

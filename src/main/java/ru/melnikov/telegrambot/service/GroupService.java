@@ -23,8 +23,11 @@ public class GroupService {
         return groupRepository.findAll();
     }
 
+    // Обновляем метод для загрузки пользователей
+    @Transactional
     public Optional<Group> findByName(String name) {
-        return groupRepository.findByName(name);
+        // Используем метод с загрузкой пользователей
+        return groupRepository.findByNameWithUsers(name);
     }
 
     public Group save(Group incoming) {
@@ -71,6 +74,7 @@ public class GroupService {
         groupRepository.deleteById(id);
     }
 
+    @Transactional
     public void addUserToGroup(Long groupId, Long userId) {
         Group group = findByIdWithUsers(groupId);
         User user = userRepository.findById(userId)
@@ -80,6 +84,7 @@ public class GroupService {
         groupRepository.save(group);
     }
 
+    @Transactional
     public void removeUserFromGroup(Long groupId, Long userId) {
         Group group = findByIdWithUsers(groupId);
         group.getUsers().removeIf(u -> u.getId().equals(userId));

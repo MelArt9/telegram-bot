@@ -19,5 +19,9 @@ public class DeadlineDto {
     @Future
     private LocalDateTime deadlineAt;
     private String description;
+
+    private String linkUrl;
+    private String linkText;
+
     private Long createdBy;
 }

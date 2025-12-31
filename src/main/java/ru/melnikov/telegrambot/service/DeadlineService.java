@@ -38,6 +38,10 @@ public class DeadlineService {
         return deadlines;
     }
 
+    public List<Deadline> findAllDeadlinesSorted() {
+        return deadlineRepository.findAllByOrderByDeadlineAtAsc();
+    }
+
     public DeadlineDto findById(Long id) {
         return deadlineRepository.findById(id)
                 .map(deadlineMapper::toDto)

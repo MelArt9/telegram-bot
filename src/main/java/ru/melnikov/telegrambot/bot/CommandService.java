@@ -5,18 +5,19 @@ import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.ParseMode;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import ru.melnikov.telegrambot.bot.context.CommandContext;
+import ru.melnikov.telegrambot.model.Deadline;
 import ru.melnikov.telegrambot.model.Schedule;
 import ru.melnikov.telegrambot.service.*;
 import ru.melnikov.telegrambot.util.TelegramUtils;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -39,6 +40,7 @@ public class CommandService {
             case START -> start(ctx);
             case TODAY -> today(ctx);
             case DAY -> day(ctx);
+            case WEEK -> week(ctx);
             case DEADLINES -> deadlines(ctx);
             case LINKS -> links(ctx);
             case TAG -> tag(ctx);
@@ -88,7 +90,6 @@ public class CommandService {
     }
 
     private SendMessage today(CommandContext ctx) {
-        // Используем метод, возвращающий сущности
         List<Schedule> scheduleList = scheduleService.findEntitiesToday();
 
         if (scheduleList.isEmpty()) {
@@ -106,7 +107,6 @@ public class CommandService {
                     """);
         }
 
-        // Получаем русское название дня недели
         DayOfWeek today = LocalDate.now().getDayOfWeek();
         String dayName = today.getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE);
 
@@ -176,7 +176,6 @@ public class CommandService {
             String dayName = dayOfWeek.getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE);
             String dayNameCapitalized = dayName.substring(0, 1).toUpperCase() + dayName.substring(1);
 
-            // Используем метод, возвращающий сущности
             List<Schedule> scheduleList = scheduleService.findEntitiesByDay(dayNumber);
 
             if (scheduleList.isEmpty()) {
@@ -240,77 +239,370 @@ public class CommandService {
         }
     }
 
-    private SendMessage deadlines(CommandContext ctx) {
-        var deadlines = deadlineService.findUpcoming();
-
-        if (deadlines.isEmpty()) {
+    // ========= НОВАЯ КОМАНДА WEEK =========
+    private SendMessage week(CommandContext ctx) {
+        // Проверяем аргументы
+        if (ctx.getArgs().length < 2) {
             return reply(ctx, """
-                    ✅ *Все дедлайны выполнены!* ✅
-
-                    🎉 *Отличная работа!* 🎉
-                    Все задания сданы вовремя.
-
-                    📚 *Что можно сделать дальше:*
-                    • Заняться дополнительными материалами
-                    • Подготовиться к следующей неделе
-                    • Отдохнуть и восстановить силы
-
-                    💡 *Другие команды:*
-                    /links – полезные ресурсы
-                    /today – расписание
+                    📅 *РАСПИСАНИЕ НА НЕДЕЛЮ*
+                    
+                    🔢 *Формат:* `/week [тип_недели]`
+                    
+                    📊 *Доступные типы:*
+                    • *odd* – неделя числителя (1️⃣)
+                    • *even* – неделя знаменателя (2️⃣)
+                    
+                    💡 *Примеры:*
+                    `/week odd` – числитель
+                    `/week even` – знаменатель
                     """);
         }
 
+        String weekType = ctx.arg(1).toLowerCase();
+
+        // Проверяем корректность типа недели
+        if (!weekType.equals("odd") && !weekType.equals("even")) {
+            return reply(ctx, """
+                    ❌ *Некорректный тип недели*
+                    
+                    📊 *Доступные типы:*
+                    • *odd* – неделя числителя
+                    • *even* – неделя знаменателя
+                    
+                    💡 *Пример:* `/week odd`
+                    """);
+        }
+
+        // Получаем все расписание
+        List<Schedule> allSchedules = scheduleService.findAllEntities();
+
+        // Фильтруем: показываем пары для запрошенного типа недели + пары с week_type = 'all'
+        List<Schedule> filteredSchedules = allSchedules.stream()
+                .filter(s -> {
+                    String scheduleWeekType = s.getWeekType();
+                    if (scheduleWeekType == null) {
+                        scheduleWeekType = "all";
+                    }
+                    // Показываем если:
+                    // 1. Тип недели совпадает с запрошенным (odd/even)
+                    // 2. Или тип недели = "all" (показывается всегда)
+                    return scheduleWeekType.equals(weekType) || scheduleWeekType.equals("all");
+                })
+                .sorted(Comparator.comparing(Schedule::getDayOfWeek)
+                        .thenComparing(Schedule::getTimeStart))
+                .toList();
+
+        return formatWeekSchedule(ctx, filteredSchedules, weekType);
+    }
+
+    private SendMessage formatWeekSchedule(CommandContext ctx, List<Schedule> schedules, String weekType) {
+        if (schedules.isEmpty()) {
+            String weekTypeName = getWeekTypeDisplayName(weekType);
+            return reply(ctx, String.format("""
+                📭 *На %s неделю пар нет*
+                
+                🎉 *Можно заняться:*
+                • Самостоятельной подготовкой
+                • Работой над проектами
+                • Отдыхом и восстановлением
+                
+                💡 *Проверьте другую неделю:*
+                /week %s
+                """,
+                    weekTypeName,
+                    weekType.equals("odd") ? "even" : "odd"));
+        }
+
+        // Группируем расписание по дням недели
+        Map<Integer, List<Schedule>> scheduleByDay = schedules.stream()
+                .collect(Collectors.groupingBy(Schedule::getDayOfWeek));
+
+        // Формируем вывод
+        StringBuilder response = new StringBuilder();
+        String weekTypeName = getWeekTypeDisplayName(weekType);
+        String weekTypeEmoji = getWeekTypeEmoji(weekType);
+
+        response.append(String.format("%s *НЕДЕЛЯ %s* %s\n\n",
+                weekTypeEmoji,
+                weekTypeName.toUpperCase(),
+                weekTypeEmoji));
+
+        // Русские названия дней недели
+        String[] dayNames = {"Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"};
+
+        // Сортируем дни недели
+        List<Integer> sortedDays = scheduleByDay.keySet().stream()
+                .sorted()
+                .toList();
+
+        int totalPairs = 0;
+        int onlinePairs = 0;
+
+        for (Integer day : sortedDays) {
+            List<Schedule> daySchedules = scheduleByDay.get(day);
+            if (daySchedules != null && !daySchedules.isEmpty()) {
+                String dayName = dayNames[day - 1];
+                response.append(String.format("📅 *%s*\n", dayName));
+
+                // Сортируем пары по времени
+                daySchedules.sort(Comparator.comparing(Schedule::getTimeStart));
+
+                for (Schedule s : daySchedules) {
+                    totalPairs++;
+
+                    if (s.getIsOnline() != null && s.getIsOnline()) {
+                        onlinePairs++;
+                    }
+
+                    String timeRange = String.format("%s-%s",
+                            s.getTimeStart().format(TIME_FORMATTER),
+                            s.getTimeEnd().format(TIME_FORMATTER));
+
+                    String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
+                    String typeEmoji = getWeekTypeEmoji(scheduleWeekType);
+                    String onlineEmoji = (s.getIsOnline() != null && s.getIsOnline()) ? "💻" : "🏫";
+
+                    response.append(String.format("%s %s\n", typeEmoji, onlineEmoji))
+                            .append(String.format("   ⏰ *%s*\n", timeRange))
+                            .append(String.format("   📖 %s\n", s.getSubject()));
+
+                    if (s.getTeacher() != null && !s.getTeacher().isBlank()) {
+                        response.append(String.format("   👨‍🏫 %s\n", s.getTeacher()));
+                    }
+
+                    if (s.getLocation() != null && !s.getLocation().isBlank()) {
+                        response.append(String.format("   📍 %s\n", s.getLocation()));
+                    }
+
+                    response.append("\n");
+                }
+
+                // Добавляем разделитель между днями
+                response.append("──────────\n\n");
+            }
+        }
+
+        // Убираем последний лишний разделитель
+        if (response.length() > 0) {
+            int lastIndex = response.lastIndexOf("──────────\n\n");
+            if (lastIndex == response.length() - "──────────\n\n".length()) {
+                response.delete(lastIndex, response.length());
+                response.append("\n");
+            }
+        }
+
+        // Добавляем упрощенную статистику
+        int offlinePairs = totalPairs - onlinePairs;
+
+        response.append(String.format("""
+            📊 *СТАТИСТИКА:*
+            
+            📝 Всего пар: %d
+            🏫 Очных: %d
+            💻 Онлайн: %d
+            
+            💡 *Другие команды:*
+            /today – сегодня
+            /day [1-7] – по дням недели
+            /week %s – другая неделя
+            """,
+                totalPairs,
+                offlinePairs,
+                onlinePairs,
+                weekType.equals("odd") ? "even" : "odd"));
+
+        return reply(ctx, response.toString());
+    }
+
+    private String getWeekTypeDisplayName(String weekType) {
+        return switch (weekType.toLowerCase()) {
+            case "odd" -> "ЧИСЛИТЕЛЬ";
+            case "even" -> "ЗНАМЕНАТЕЛЬ";
+            default -> weekType.toUpperCase();
+        };
+    }
+
+    // ========= КОНЕЦ НОВОЙ КОМАНДЫ WEEK =========
+
+    private SendMessage deadlines(CommandContext ctx) {
+        // Получаем ВСЕ дедлайны
+        var allDeadlines = deadlineService.findAllDeadlinesSorted();
+
+        // Фильтруем дедлайны:
+        // 1. Показываем все будущие дедлайны (deadlineAt > now)
+        // 2. Показываем просроченные, но не более чем на 7 дней
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime sevenDaysAgo = now.minusDays(7);
+
+        var filteredDeadlines = allDeadlines.stream()
+                .filter(d -> {
+                    LocalDateTime deadlineTime = d.getDeadlineAt();
+                    // Показываем если:
+                    // 1. Дедлайн в будущем
+                    // 2. ИЛИ дедлайн просрочен, но не более чем на 7 дней
+                    return deadlineTime.isAfter(now) ||
+                            (deadlineTime.isBefore(now) && deadlineTime.isAfter(sevenDaysAgo));
+                })
+                .toList();
+
+        if (filteredDeadlines.isEmpty()) {
+            return reply(ctx, """
+                ✅ *Все дедлайны выполнены!* ✅
+
+                🎉 *Отличная работа!* 🎉
+                Все задания сданы вовремя.
+
+                📚 *Что можно сделать дальше:*
+                • Заняться дополнительными материалами
+                • Подготовиться к следующей неделе
+                • Отдохнуть и восстановить силы
+
+                💡 *Другие команды:*
+                /links – полезные ресурсы
+                /today – расписание
+                """);
+        }
+
         // Сортируем по дате дедлайна
-        deadlines.sort(Comparator.comparing(deadline -> deadline.getDeadlineAt()));
+        List<Deadline> sortedDeadlines = new ArrayList<>(filteredDeadlines);
+        sortedDeadlines.sort((d1, d2) -> {
+            boolean d1Overdue = d1.getDeadlineAt().isBefore(now);
+            boolean d2Overdue = d2.getDeadlineAt().isBefore(now);
+
+            if (d1Overdue && d2Overdue) {
+                return d2.getDeadlineAt().compareTo(d1.getDeadlineAt());
+            } else if (d1Overdue) {
+                return -1;
+            } else if (d2Overdue) {
+                return 1;
+            } else {
+                return d1.getDeadlineAt().compareTo(d2.getDeadlineAt());
+            }
+        });
 
         StringBuilder formatted = new StringBuilder();
-        LocalDate today = LocalDate.now();
         int urgentCount = 0;
         int nearCount = 0;
         int futureCount = 0;
+        int overdueCount = 0;
 
-        for (var deadline : deadlines) {
-            long daysLeft = java.time.temporal.ChronoUnit.DAYS.between(today, deadline.getDeadlineAt().toLocalDate());
+        int deadlineCount = sortedDeadlines.size();
+
+        for (int i = 0; i < deadlineCount; i++) {
+            var deadline = sortedDeadlines.get(i);
+            LocalDateTime deadlineTime = deadline.getDeadlineAt();
+
+            // Рассчитываем разницу в днях
+            long daysBetween = java.time.temporal.ChronoUnit.DAYS.between(
+                    now.toLocalDate(),
+                    deadlineTime.toLocalDate()
+            );
+
             String emoji;
+            String daysText;
 
-            if (daysLeft < 3) {
+            // Проверяем, просрочен ли дедлайн
+            if (deadlineTime.isBefore(now)) {
+                emoji = "🔴 (ПРОСРОЧЕНО)";
+                overdueCount++;
+
+                long daysOverdue = Math.abs(daysBetween);
+                if (daysOverdue == 0) {
+                    long hoursOverdue = java.time.temporal.ChronoUnit.HOURS.between(deadlineTime, now);
+                    if (hoursOverdue < 24) {
+                        daysText = String.format("⚠️ Просрочено на %d ч.", hoursOverdue);
+                    } else {
+                        daysText = "⚠️ Просрочено сегодня";
+                    }
+                } else if (daysOverdue == 1) {
+                    daysText = "⚠️ Просрочено на 1 день";
+                } else {
+                    daysText = String.format("⚠️ Просрочено на %d д.", daysOverdue);
+                }
+            }
+            // Дедлайн сегодня
+            else if (daysBetween == 0) {
+                long hoursLeft = java.time.temporal.ChronoUnit.HOURS.between(now, deadlineTime);
+                if (hoursLeft <= 12) {
+                    emoji = "🔴 (СЕГОДНЯ)";
+                    urgentCount++;
+                    daysText = String.format("⏰ Осталось %d ч.", hoursLeft);
+                } else {
+                    emoji = "🟡 (СЕГОДНЯ)";
+                    nearCount++;
+                    daysText = "⏰ Сдать сегодня";
+                }
+            }
+            // Срочные (менее 3 дней)
+            else if (daysBetween <= 2) {
                 emoji = "🔴";
                 urgentCount++;
-            } else if (daysLeft < 7) {
+                if (daysBetween == 1) {
+                    daysText = "⏳ Остался 1 день";
+                } else {
+                    daysText = String.format("⏳ Осталось %d д.", daysBetween);
+                }
+            }
+            // Ближайшие (менее 7 дней)
+            else if (daysBetween <= 7) {
                 emoji = "🟡";
                 nearCount++;
-            } else {
+                daysText = String.format("⏳ Осталось %d д.", daysBetween);
+            }
+            // Будущие (более 7 дней)
+            else {
                 emoji = "🟢";
                 futureCount++;
+                daysText = String.format("⏳ Осталось %d д.", daysBetween);
             }
 
-            formatted.append(String.format("%s *%s*%n", emoji, deadline.getTitle()))
-                    .append(String.format("   📅 %s%n", deadline.getDeadlineAt().format(DATETIME_FORMATTER)))
-                    .append(String.format("   📝 %s%n", deadline.getDescription() != null ? deadline.getDescription() : "Описание отсутствует"))
-                    .append(String.format("   ⏳ Осталось: %d д.%n%n", Math.max(0, daysLeft)));
+            formatted.append(String.format("%s *%s*\n", emoji, deadline.getTitle()))
+                    .append(String.format("   📅 %s\n", deadlineTime.format(DATETIME_FORMATTER)))
+                    .append(String.format("   📝 %s\n",
+                            deadline.getDescription() != null && !deadline.getDescription().isBlank() ?
+                                    deadline.getDescription() : "Описание отсутствует"));
+
+            // Добавляем ссылку, если она есть
+            if (deadline.getLinkUrl() != null && !deadline.getLinkUrl().isBlank()) {
+                String linkText = deadline.getLinkText() != null && !deadline.getLinkText().isBlank()
+                        ? deadline.getLinkText()
+                        : "Ссылка на задание";
+                formatted.append(String.format("   🔗 [%s](%s)\n", linkText, deadline.getLinkUrl()));
+            }
+
+            formatted.append(String.format("   %s\n", daysText));
+
+            // Добавляем разделитель между дедлайнами, но не после последнего
+            if (i < deadlineCount - 1) {
+                formatted.append("\n──────────\n\n");
+            }
         }
 
+        // Обновляем статистику
         String response = String.format("""
-                ⏰ *АКТУАЛЬНЫЕ ДЕДЛАЙНЫ* ⏰
+            ⏰ *АКТУАЛЬНЫЕ ДЕДЛАЙНЫ* ⏰
 
-                %s
-                📈 *Статистика:*
-                🔴 Срочных (< 3 дней): %d
-                🟡 Ближайших (< 7 дней): %d
-                🟢 Будущих (> 7 дней): %d
+            %s
+            📈 *Статистика:*
+            🔴 Просрочено (< 7 д.): %d
+            🔴 Срочных (< 3 дней): %d
+            🟡 Ближайших (< 7 дней): %d
+            🟢 Будущих (> 7 дней): %d
+            📊 Всего: %d
 
-                💡 *Не забывайте:*
-                • Начинайте работу заранее
-                • Распределяйте нагрузку равномерно
-                • Делайте перерывы для эффективности
+            💡 *Не забывайте:*
+            • Начинайте работу заранее
+            • Распределяйте нагрузку равномерно
+            • Делайте перерывы для эффективности
 
-                🚀 *У вас всё получится!*
-                """,
+            🚀 *У вас всё получится!*
+            """,
                 formatted.toString(),
+                overdueCount,
                 urgentCount,
                 nearCount,
-                futureCount);
+                futureCount,
+                sortedDeadlines.size());
 
         return reply(ctx, response);
     }
@@ -358,16 +650,16 @@ public class CommandService {
     private SendMessage tag(CommandContext ctx) {
         if (ctx.getArgs().length < 2) {
             return reply(ctx, """
-                    👥 *УПОМИНАНИЕ ГРУППЫ* 👥
+                👥 *УПОМИНАНИЕ ГРУППЫ* 👥
 
-                    🔧 *Формат:* `/tag [название_группы]`
+                🔧 *Формат:* `/tag [название_группы]`
 
-                    📋 *Доступные группы:*
-                    • all – все пользователи
-                    • starosta – староста
+                📋 *Доступные группы:*
+                • all – все пользователи
+                • starosta – староста
 
-                    💡 *Пример:* `/tag all` – упомянуть всех
-                    """);
+                💡 *Пример:* `/tag all` – упомянуть всех
+                """);
         }
 
         String groupName = ctx.getArgs()[1].toLowerCase();
@@ -376,61 +668,73 @@ public class CommandService {
                 .map(group -> {
                     if (group.getUsers().isEmpty()) {
                         return reply(ctx, String.format("""
-                                👤 *Группа \"%s\" пуста*
+                            👤 *Группа \"%s\" пуста*
 
-                                📭 *В этой группе пока нет участников*
+                            📭 *В этой группе пока нет участников*
 
-                                💡 *Что можно сделать:*
-                                • Пригласить участников в группу
-                                • Проверить другие группы
-                                • Обратиться к администратору
-
-                                🔧 *Для админов:* `/admin` – управление группами
-                                """, groupName));
+                            💡 *Что можно сделать:*
+                            • Пригласить участников в группу
+                            • Проверить другие группы
+                            • Обратиться к администратору
+                            """, groupName));
                     }
 
                     StringBuilder users = new StringBuilder();
                     for (var user : group.getUsers()) {
-                        String mention = user.getUsername() != null && !user.getUsername().isBlank()
-                                ? "@" + user.getUsername()
-                                : (user.getFirstName() != null ? user.getFirstName() : "");
+                        if (user.getUsername() != null && !user.getUsername().isBlank() && user.getTelegramId() != null) {
+                            // Формируем кликабельную ссылку на пользователя
+                            String username = user.getUsername();
+                            Long telegramId = user.getTelegramId();
 
-                        if (!mention.isEmpty()) {
-                            users.append("👤 ").append(mention).append("\n");
+                            // Формат: [@username](tg://user?id=telegram_id)
+                            String mentionLink = String.format("[@%s](tg://user?id=%d)", username, telegramId);
+
+                            // Добавляем имя пользователя, если есть
+                            if (user.getFirstName() != null && !user.getFirstName().isBlank()) {
+                                users.append(String.format("👤 %s %s\n", user.getFirstName(), mentionLink));
+                            } else {
+                                users.append(String.format("👤 %s\n", mentionLink));
+                            }
+                        } else if (user.getFirstName() != null && !user.getFirstName().isBlank() && user.getTelegramId() != null) {
+                            // Если нет username, но есть telegramId, делаем ссылку на имя
+                            String mentionLink = String.format("[%s](tg://user?id=%d)",
+                                    user.getFirstName(), user.getTelegramId());
+                            users.append(String.format("👤 %s\n", mentionLink));
+                        } else {
+                            // Если ничего нет, просто показываем информацию
+                            String displayName = user.getFirstName() != null ? user.getFirstName() :
+                                    (user.getUsername() != null ? "@" + user.getUsername() :
+                                            "Пользователь #" + user.getId());
+                            users.append(String.format("👤 %s\n", displayName));
                         }
                     }
 
                     return reply(ctx, String.format("""
-                            📢 *УПОМИНАНИЕ ГРУППЫ: %s* 📢
+                        📢 *УПОМИНАНИЕ ГРУППЫ: %s* 📢
 
-                            %s
-                            👥 *Участников всего:* %d
+                        %s
+                        👥 *Участников всего:* %d
 
-                            💬 *Используйте для:*
-                            • Важных объявлений
-                            • Напоминаний о дедлайнах
-                            • Совместных обсуждений
-
-                            ⚠️ *Пожалуйста, не злоупотребляйте упоминаниями*
-                            """,
+                        ⚠️ *Пожалуйста, не злоупотребляйте упоминаниями*
+                        """,
                             groupName.toUpperCase(),
                             users.toString(),
                             group.getUsers().size()));
                 })
                 .orElse(reply(ctx, String.format("""
-                        ❌ *Группа не найдена* ❌
+                    ❌ *Группа не найдена* ❌
 
-                        Группа *\"%s\"* не существует или была удалена.
+                    Группа *\"%s\"* не существует или была удалена.
 
-                        🔍 *Проверьте правильность названия*
-                        /help – список доступных команд
+                    🔍 *Проверьте правильность названия*
+                    /help – список доступных команд
 
-                        📋 *Возможные группы:*
-                        • all – все пользователи
-                        • starosta – староста
+                    📋 *Возможные группы:*
+                    • all – все пользователи
+                    • starosta – староста
 
-                        💡 *Обратитесь к администратору для уточнения*
-                        """, groupName)));
+                    💡 *Обратитесь к администратору для уточнения*
+                    """, groupName)));
     }
 
     private SendMessage help(CommandContext ctx) {
@@ -441,8 +745,9 @@ public class CommandService {
                 ┃     📚 РАСПИСАНИЕ     ┃
                 ┗━━━━━━━━━━━┛
 
-                📅 /today – На сегодня
-                📆 /day [1-7] – По дням недели
+                📅 /today – Расписание на сегодня
+                📆 /day [1-7] – Расписание по дню недели
+                🗓️  /week [odd/even] – Расписание на неделю
 
                 ┏━━━━━━━━━━━┓
                 ┃  ⏰ УЧЕБНЫЙ ПЛАН   ┃
@@ -455,7 +760,7 @@ public class CommandService {
                 ┃ 👥 КОММУНИКАЦИЯ  ┃
                 ┗━━━━━━━━━━━┛
 
-                📢 /tag [группа] – Упоминание
+                📢 /tag [группа] – Упомянуть группу
 
                 ┏━━━━━━━━━━━┓
                 ┃        ⚙️  СИСТЕМА          ┃
@@ -468,10 +773,12 @@ public class CommandService {
 
                 📝 *Примеры использования:*
                 • `/day 3` – расписание на среду
+                • `/week odd` – неделя числитель
+                • `/week even` – неделя знаменатель
                 • `/tag all` – упомянуть всех
                 • `/deadlines` – посмотреть дедлайны
 
-                💡 *Совет:* Используйте встроенную клавиатурные кнопки для быстрого доступа!
+                💡 *Совет:* Используйте встроенные кнопки для быстрого доступа!
 
                 🎓 *Успешной учёбы!*
                 """);
@@ -494,9 +801,10 @@ public class CommandService {
                     s.getTimeEnd().format(TIME_FORMATTER));
 
             String weekTypeEmoji = getWeekTypeEmoji(s.getWeekType());
-            String onlineEmoji = s.getIsOnline() ? "💻" : "🏫";
-            String locationInfo = s.getIsOnline() ? "Онлайн" :
-                    (s.getLocation() != null ? s.getLocation() : "Ауд. не указана");
+            Boolean isOnline = s.getIsOnline();
+            String onlineEmoji = (isOnline != null && isOnline) ? "💻" : "🏫";
+            String locationInfo = (isOnline != null && isOnline) ?
+                    "Онлайн" : (s.getLocation() != null ? s.getLocation() : "Ауд. не указана");
 
             sb.append(String.format("%d. %s %s\n", i + 1, weekTypeEmoji, onlineEmoji))
                     .append(String.format("   ⏰ *%s*\n", timeRange))
@@ -511,10 +819,14 @@ public class CommandService {
     }
 
     private String getWeekTypeEmoji(String weekType) {
-        return switch (weekType) {
+        if (weekType == null) {
+            return "🔄"; // Для null показываем как "all"
+        }
+        return switch (weekType.toLowerCase()) {
             case "odd" -> "1️⃣";
             case "even" -> "2️⃣";
-            default -> "🔄";
+            case "all" -> "🔄";
+            default -> "🔄"; // По умолчанию
         };
     }
 
@@ -534,7 +846,7 @@ public class CommandService {
 
     private int countOnlinePairs(List<Schedule> scheduleList) {
         return (int) scheduleList.stream()
-                .filter(Schedule::getIsOnline)
+                .filter(s -> s.getIsOnline() != null && s.getIsOnline())
                 .count();
     }
 }

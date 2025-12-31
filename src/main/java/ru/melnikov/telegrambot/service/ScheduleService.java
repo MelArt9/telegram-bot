@@ -61,6 +61,7 @@ public class ScheduleService {
         return scheduleMapper.toDto(scheduleRepository.save(schedule));
     }
 
+    // Метод для получения всех сущностей (для команды /week)
     public List<Schedule> findAllEntities() {
         return scheduleRepository.findAll();
     }

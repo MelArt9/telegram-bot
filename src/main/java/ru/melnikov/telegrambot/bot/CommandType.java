@@ -6,6 +6,7 @@ public enum CommandType {
     START("/start", "Начать работу"),
     TODAY("/today", "Расписание на сегодня"),
     DAY("/day", "Расписание по дню"),
+    WEEK("/week", "Расписание на неделю"), // НОВАЯ КОМАНДА
     DEADLINES("/deadlines", "Ближайшие дедлайны"),
     LINKS("/links", "Полезные ссылки"),
     TAG("/tag", "Упомянуть группу"),

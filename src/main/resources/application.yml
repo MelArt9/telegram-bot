@@ -41,3 +41,7 @@ telegram:
     enabled: true
     token: 8512371848:AAEqIbcRIEa7mVnCw_mGpU9DyQPyqnYwB0A
     username: pisms_guardian_bot
+    group-settings:
+      welcome-message: true  # Приветственное сообщение при добавлении
+      auto-respond: true     # Автоответ на команды
+      mention-support: true  # Поддержка упоминаний

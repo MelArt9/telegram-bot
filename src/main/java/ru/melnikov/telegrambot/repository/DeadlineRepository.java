@@ -11,4 +11,7 @@ public interface DeadlineRepository extends JpaRepository<Deadline, Long> {
     List<Deadline> findByDeadlineAtAfter(LocalDateTime dateTime);
 
     List<Deadline> findByCreatedBy_Id(Long userId);
+
+    // Дополнительный метод для получения всех дедлайнов
+    List<Deadline> findAllByOrderByDeadlineAtAsc();
 }

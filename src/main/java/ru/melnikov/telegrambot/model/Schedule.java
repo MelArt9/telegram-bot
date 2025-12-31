@@ -34,5 +34,6 @@ public class Schedule extends BaseEntity {
     private Boolean isOnline;
 
     @Column(name = "week_type")
-    private String weekType;
+    @Builder.Default
+    private String weekType = "all"; // Значение по умолчанию
 }
