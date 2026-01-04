@@ -33,21 +33,25 @@ spring:
     resources:
       static-locations: classpath:/static/
 
+# Включим подробное логирование для шедулера
 logging:
   level:
-    root: INFO
-    org.springframework.web: INFO
-    org.hibernate.SQL: DEBUG
-    ru.melnikov.telegrambot: DEBUG
+    ru.melnikov.telegrambot.service: DEBUG
+    ru.melnikov.telegrambot.service.SmartReminderService: INFO
+    ru.melnikov.telegrambot.service.ReminderMessageService: INFO
+    org.springframework.scheduling: DEBUG
 
 telegram:
   bot:
+    enabled: true         # включен ли бот
     token: 8512371848:AAEqIbcRIEa7mVnCw_mGpU9DyQPyqnYwB0A
     username: pisms_guardian_bot
 
   admins:
     usernames:
       - "mi1ord"  # Ваш username без @
+    #userIds:
+    #  -
 
   reminders:
     # Настройки расписания
@@ -60,19 +64,19 @@ telegram:
     deadlines:
       enabled: true
       time: "10:00"        # Время отправки еженедельных дедлайнов
-      days: "0101010"      # Вт, Чт, Пт
+      days: "0101010"      # Вт, Чт, Сб
 
     # Настройки напоминаний перед парой
     before-class:
       enabled: true
-      minutes: 10          # За сколько минут напоминать о начале пары
+      minutes: 15          # За сколько минут напоминать о начале пары
 
     # Настройки определения типа недели (odd/even)
     week-type:
-      reference-date: "2025-12-29"    # Дата отсчета
-      reference-week-type: "even"     # Какая неделя была в reference-date ("even" или "odd")
+      reference-date: "2025-12-29"
+      reference-week-type: "even"  # ЧЕТНАЯ = ЗНАМЕНАТЕЛЬ
 
     # Настройки планировщика
     scheduler:
       enabled: true
-      check-interval: "0 * * * * *"  # Проверка каждую минуту
+      check-interval: "60000"  # Проверка каждую минуту

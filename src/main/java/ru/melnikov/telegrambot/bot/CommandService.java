@@ -4,14 +4,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.ParseMode;
-import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatAdministrators;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.objects.Chat;
-import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMember;
-import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.melnikov.telegrambot.bot.context.CommandContext;
-import ru.melnikov.telegrambot.config.AdminConfig;
-import ru.melnikov.telegrambot.config.ReminderConfig;
+import ru.melnikov.telegrambot.config.BotSettingsConfig;
 import ru.melnikov.telegrambot.model.BotChat;
 import ru.melnikov.telegrambot.model.Deadline;
 import ru.melnikov.telegrambot.model.Reminder;
@@ -41,16 +36,13 @@ public class CommandService {
     private final BotChatService botChatService;
     private final PerformanceMonitor performanceMonitor;
     private final AdminCheckService adminCheckService;
-    private final AdminConfig adminConfig;
-    private final ReminderConfig reminderConfig;
+    private final BotSettingsConfig settingsConfig;
+    private final WeekTypeService weekTypeService;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy");
     private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
     private static final Locale RUSSIAN_LOCALE = new Locale("ru");
-
-    // Дата начала отсчета для определения четности недели
-    private static final LocalDate REFERENCE_DATE_EVEN_WEEK = LocalDate.of(2025, 12, 29);
 
     public SendMessage handle(CommandType type, CommandContext ctx) {
         // Автоматическое логирование через аспект
@@ -67,7 +59,7 @@ public class CommandService {
             case HELP -> help(ctx);
             case REMINDERS -> reminders(ctx);
             case SETTINGS -> settings(ctx);
-            case ADMIN -> admin(ctx); // Новая команда
+            case ADMIN -> admin(ctx);
             default -> unknown(ctx);
         };
     }
@@ -163,15 +155,20 @@ public class CommandService {
     }
 
     private SendMessage today(CommandContext ctx) {
-        // Автоматически определяем текущую неделю
-        String currentWeekType = getCurrentWeekType();
-        String weekTypeDisplay = getWeekTypeDisplayName(currentWeekType);
-        String weekTypeEmoji = getWeekTypeEmoji(currentWeekType);
+        // Используем WeekTypeService для определения типа недели
+        String currentWeekType = weekTypeService.getCurrentWeekType();
+        String weekTypeDisplay = weekTypeService.getWeekTypeDisplayName(currentWeekType);
+        String weekTypeEmoji = weekTypeService.getWeekTypeEmoji(currentWeekType);
 
-        List<Schedule> scheduleList = scheduleService.findEntitiesToday();
+        // Получаем номер дня недели (1-7)
+        DayOfWeek todayDayOfWeek = LocalDate.now().getDayOfWeek();
+        int dayNumber = todayDayOfWeek.getValue();
 
-        // Фильтруем расписание для текущей недели (текущий тип + all)
-        List<Schedule> filteredScheduleList = scheduleList.stream()
+        // Получаем ВСЕ расписания для этого дня недели
+        List<Schedule> allScheduleList = scheduleService.findEntitiesByDay(dayNumber);
+
+        // ✅ ИСПРАВЛЕНИЕ: Фильтруем как в методе day()
+        List<Schedule> filteredScheduleList = allScheduleList.stream()
                 .filter(s -> {
                     String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
                     return scheduleWeekType.equals(currentWeekType) || scheduleWeekType.equals("all");
@@ -179,83 +176,148 @@ public class CommandService {
                 .sorted(Comparator.comparing(Schedule::getTimeStart))
                 .toList();
 
+        // Логируем для отладки
+        log.debug("Сегодня день: {} (номер: {}), тип недели: {} ({}), всего пар в БД: {}, после фильтрации: {}",
+                todayDayOfWeek.getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE),
+                dayNumber,
+                currentWeekType, weekTypeDisplay,
+                allScheduleList.size(),
+                filteredScheduleList.size());
+
         if (filteredScheduleList.isEmpty()) {
             return reply(ctx, String.format("""
-                    📭 *Сегодня занятий нет!* 📭
-                    🗓️ *Тип недели:* %s %s
-                    
-                    🎉 *Можно отдохнуть или заняться саморазвитием:*
-                    • Повторите пройденный материал
-                    • Подготовьтесь к будущим занятиям
-                    • Отдохните и наберитесь сил
-                    
-                    💡 *Что дальше?*
-                    /day [1-7] – посмотреть другой день
-                    /deadlines – проверить дедлайны
-                    """, weekTypeEmoji, weekTypeDisplay));
+                📭 *Сегодня занятий нет!* 📭
+                📅 *День:* %s
+                🗓️ *Тип недели:* %s %s
+                
+                🎉 *Можно отдохнуть или заняться саморазвитием:*
+                • Повторите пройденный материал
+                • Подготовьтесь к будущим занятиям
+                • Отдохните и наберитесь сил
+                
+                💡 *Что дальше?*
+                /day [1-7] – посмотреть другой день
+                /deadlines – проверить дедлайны
+                """,
+                    todayDayOfWeek.getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE),
+                    weekTypeEmoji, weekTypeDisplay));
         }
 
-        DayOfWeek today = LocalDate.now().getDayOfWeek();
-        String dayName = today.getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE);
+        String dayName = todayDayOfWeek.getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE);
 
-        String scheduleText = formatScheduleList(filteredScheduleList, dayName, "сегодня", currentWeekType);
+        // Форматируем расписание
+        StringBuilder scheduleText = new StringBuilder();
+
+        for (int i = 0; i < filteredScheduleList.size(); i++) {
+            Schedule s = filteredScheduleList.get(i);
+            String timeRange = String.format("%s-%s",
+                    s.getTimeStart().format(TIME_FORMATTER),
+                    s.getTimeEnd().format(TIME_FORMATTER));
+
+            String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
+
+            // Эмодзи для каждой пары
+            String pairWeekTypeEmoji;
+            String pairWeekTypeText;
+
+            if ("odd".equals(scheduleWeekType)) {
+                pairWeekTypeEmoji = "1️⃣";
+                pairWeekTypeText = "числитель";
+            } else if ("even".equals(scheduleWeekType)) {
+                pairWeekTypeEmoji = "2️⃣";
+                pairWeekTypeText = "знаменатель";
+            } else {
+                pairWeekTypeEmoji = "🔄";
+                pairWeekTypeText = "обе недели";
+            }
+
+            String onlineEmoji = (s.getIsOnline() != null && s.getIsOnline()) ? "💻" : "🏫";
+
+            scheduleText.append(String.format("%d. %s %s\n", i + 1, pairWeekTypeEmoji, onlineEmoji))
+                    .append(String.format("   ⏰ *%s*\n", timeRange))
+                    .append(String.format("   📖 %s (%s)\n", s.getSubject(), pairWeekTypeText));
+
+            if (s.getTeacher() != null && !s.getTeacher().isBlank()) {
+                scheduleText.append(String.format("   👨‍🏫 %s\n", s.getTeacher()));
+            }
+
+            if (s.getLocation() != null && !s.getLocation().isBlank()) {
+                String location = (s.getIsOnline() != null && s.getIsOnline()) ?
+                        "Онлайн" : s.getLocation();
+                scheduleText.append(String.format("   📍 %s\n", location));
+            }
+
+            scheduleText.append("\n");
+        }
+
         int totalPairs = filteredScheduleList.size();
-        int onlinePairs = countOnlinePairs(filteredScheduleList);
+        int onlinePairs = (int) filteredScheduleList.stream()
+                .filter(s -> s.getIsOnline() != null && s.getIsOnline())
+                .count();
         int offlinePairs = totalPairs - onlinePairs;
 
         LocalTime firstTime = getFirstPairTime(filteredScheduleList);
         LocalTime lastTime = getLastPairTime(filteredScheduleList);
 
         String response = String.format("""
-                📋 *РАСПИСАНИЕ НА СЕГОДНЯ* 📋
-                *%s* | %s %s
-                
-                %s
-                
-                📊 *Статистика дня:*
-                📝 Всего пар: %d
-                🏫 Очных: %d
-                💻 Онлайн: %d
-                
-                ⏰ *Временные границы:*
-                🕐 Начало: %s
-                🕔 Конец: %s
-                
-                💡 *Другие команды:*
-                /day [1-7] – другой день недели
-                /deadlines – дедлайны работ
-                """,
+            📋 *РАСПИСАНИЕ НА СЕГОДНЯ* 📋
+            📅 *День:* %s
+            🗓️ *Тип недели:* %s %s
+            
+            %s
+            
+            📊 *Статистика дня:*
+            📝 Всего пар: %d
+            🏫 Очных: %d
+            💻 Онлайн: %d
+            
+            ⏰ *Временные границы:*
+            🕐 Начало: %s
+            🕔 Конец: %s
+            
+            💡 *Другие команды:*
+            /day [1-7] – другой день недели
+            /deadlines – дедлайны работ
+            """,
                 dayName.substring(0, 1).toUpperCase() + dayName.substring(1),
                 weekTypeEmoji, weekTypeDisplay,
-                scheduleText,
+                scheduleText.toString(),
                 totalPairs,
                 offlinePairs,
                 onlinePairs,
                 firstTime != null ? firstTime.format(TIME_FORMATTER) : "—",
                 lastTime != null ? lastTime.format(TIME_FORMATTER) : "—");
 
+        log.info("========== DEBUG /today ==========");
+        log.info("Сегодня: {} (день {}), weekType: {}",
+                LocalDate.now(), dayNumber, currentWeekType);
+        log.info("Всего пар в БД для дня {}: {}", dayNumber, allScheduleList.size());
+        for (Schedule s : allScheduleList) {
+            log.info("Пара в БД: {} (week_type: {})",
+                    s.getSubject(), s.getWeekType() != null ? s.getWeekType() : "all");
+        }
+        log.info("После фильтрации (weekType={}): {} пар",
+                currentWeekType, filteredScheduleList.size());
+        log.info("========== END DEBUG ==========");
         return reply(ctx, response);
     }
 
     private SendMessage day(CommandContext ctx) {
         if (ctx.getArgs().length < 2) {
             return reply(ctx, """
-                    📝 *Использование команды /day*
-                    
-                    🔢 *Формат:* `/day [номер дня]`
-                    • 1 – Понедельник
-                    • 2 – Вторник
-                    • 3 – Среда
-                    • 4 – Четверг
-                    • 5 – Пятница
-                    • 6 – Суббота
-                    • 7 – Воскресенье
-                    
-                    💡 *Пример:* `/day 3` – расписание на среду
-                    
-                    ⚠️ *Примечание:* Бот автоматически определяет тип текущей недели
-                    и показывает расписание для соответствующего типа (четная/нечетная)
-                    """);
+                📝 *Использование команды /day*
+                
+                🔢 *Формат:* `/day [номер дня]`
+                • 1 – Понедельник
+                • 2 – Вторник
+                • 3 – Среда
+                • 4 – Четверг
+                • 5 – Пятница
+                • 6 – Суббота
+                • 7 – Воскресенье
+                
+                💡 *Пример:* `/day 3` – расписание на среду
+                """);
         }
 
         try {
@@ -264,19 +326,32 @@ public class CommandService {
                 return reply(ctx, "❌ *Некорректный номер дня*\n\nВведите число от 1 до 7");
             }
 
-            // Автоматически определяем текущую неделю
-            String currentWeekType = getCurrentWeekType();
-            String weekTypeDisplay = getWeekTypeDisplayName(currentWeekType);
-            String weekTypeEmoji = getWeekTypeEmoji(currentWeekType);
-
             DayOfWeek dayOfWeek = DayOfWeek.of(dayNumber);
             String dayName = dayOfWeek.getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE);
             String dayNameCapitalized = dayName.substring(0, 1).toUpperCase() + dayName.substring(1);
 
-            // Получаем ВСЕ расписания для этого дня недели
+            // Используем ТЕКУЩИЙ тип недели
+            String currentWeekType = weekTypeService.getCurrentWeekType();
+
+            // ✅ ПРАВИЛЬНЫЕ ЭМОДЗИ И НАЗВАНИЯ
+            String weekTypeDisplay;
+            String weekTypeEmoji;
+
+            if ("odd".equals(currentWeekType)) {
+                weekTypeDisplay = "ЧИСЛИТЕЛЬ";
+                weekTypeEmoji = "1️⃣";
+            } else if ("even".equals(currentWeekType)) {
+                weekTypeDisplay = "ЗНАМЕНАТЕЛЬ";
+                weekTypeEmoji = "2️⃣";
+            } else {
+                weekTypeDisplay = "ВСЕ";
+                weekTypeEmoji = "🔄";
+            }
+
+            // Получаем все расписания для этого дня
             List<Schedule> allScheduleList = scheduleService.findEntitiesByDay(dayNumber);
 
-            // Фильтруем: показываем только расписание для текущего типа недели + all
+            // Фильтруем: показываем пары для текущего типа недели + пары с week_type = 'all'
             List<Schedule> filteredScheduleList = allScheduleList.stream()
                     .filter(s -> {
                         String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
@@ -285,51 +360,98 @@ public class CommandService {
                     .sorted(Comparator.comparing(Schedule::getTimeStart))
                     .toList();
 
+            // Отладочная информация
+            log.debug("День {}: тип недели {} ({}), всего пар {}",
+                    dayNumber, currentWeekType, weekTypeDisplay, filteredScheduleList.size());
+
             if (filteredScheduleList.isEmpty()) {
                 return reply(ctx, String.format("""
-                        📭 *В %s занятий нет* 📭
-                        🗓️ *Тип недели:* %s %s
-                        
-                        🎉 *Это день для:*
-                        • Самостоятельной подготовки
-                        • Отдыха и восстановления
-                        • Работы над проектами
-                        
-                        💡 *Проверьте другие дни:*
-                        /today – сегодня
-                        /deadlines – дедлайны
-                        /week %s – вся неделя
-                        """,
+                    📭 *В %s занятий нет* 📭
+                    🗓️ *Тип недели:* %s %s
+                    
+                    🎉 *Это день для:*
+                    • Самостоятельной подготовки
+                    • Отдыха и восстановления
+                    • Работы над проектами
+                    
+                    💡 *Проверьте другую неделю:*
+                    /week %s
+                    """,
                         dayNameCapitalized,
                         weekTypeEmoji, weekTypeDisplay,
                         currentWeekType.equals("odd") ? "even" : "odd"));
             }
 
-            // Форматируем расписание с указанием типа недели
-            String scheduleText = formatScheduleList(filteredScheduleList, dayNameCapitalized, "этот день", currentWeekType);
+            // Форматируем расписание с правильными эмодзи
+            StringBuilder scheduleText = new StringBuilder();
+
+            for (int i = 0; i < filteredScheduleList.size(); i++) {
+                Schedule s = filteredScheduleList.get(i);
+                String timeRange = String.format("%s-%s",
+                        s.getTimeStart().format(TIME_FORMATTER),
+                        s.getTimeEnd().format(TIME_FORMATTER));
+
+                String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
+
+                // ✅ Эмодзи для каждой пары
+                String pairWeekTypeEmoji;
+                String pairWeekTypeText;
+
+                if ("odd".equals(scheduleWeekType)) {
+                    pairWeekTypeEmoji = "1️⃣";
+                    pairWeekTypeText = "числитель";
+                } else if ("even".equals(scheduleWeekType)) {
+                    pairWeekTypeEmoji = "2️⃣";
+                    pairWeekTypeText = "знаменатель";
+                } else {
+                    pairWeekTypeEmoji = "🔄";
+                    pairWeekTypeText = "обе недели";
+                }
+
+                String onlineEmoji = (s.getIsOnline() != null && s.getIsOnline()) ? "💻" : "🏫";
+
+                scheduleText.append(String.format("%d. %s %s\n", i + 1, pairWeekTypeEmoji, onlineEmoji))
+                        .append(String.format("   ⏰ *%s*\n", timeRange))
+                        .append(String.format("   📖 %s (%s)\n", s.getSubject(), pairWeekTypeText));
+
+                if (s.getTeacher() != null && !s.getTeacher().isBlank()) {
+                    scheduleText.append(String.format("   👨‍🏫 %s\n", s.getTeacher()));
+                }
+
+                if (s.getLocation() != null && !s.getLocation().isBlank()) {
+                    String location = (s.getIsOnline() != null && s.getIsOnline()) ?
+                            "Онлайн" : s.getLocation();
+                    scheduleText.append(String.format("   📍 %s\n", location));
+                }
+
+                scheduleText.append("\n");
+            }
+
             int totalPairs = filteredScheduleList.size();
-            int onlinePairs = countOnlinePairs(filteredScheduleList);
+            int onlinePairs = (int) filteredScheduleList.stream()
+                    .filter(s -> s.getIsOnline() != null && s.getIsOnline())
+                    .count();
             int offlinePairs = totalPairs - onlinePairs;
 
             String response = String.format("""
-                    📅 *РАСПИСАНИЕ: %s* 📅
-                    🗓️ *Тип недели:* %s %s
-                    
-                    %s
-                    
-                    📊 *Статистика дня:*
-                    📝 Всего пар: %d
-                    🏫 Очных: %d
-                    💻 Онлайн: %d
-                    
-                    💡 *Быстрые команды:*
-                    /today – сегодняшнее расписание
-                    /week %s – вся неделя
-                    /help – все команды
-                    """,
+                📅 *РАСПИСАНИЕ: %s* 📅
+                🗓️ *Текущая неделя:* %s %s
+                
+                %s
+                
+                📊 *Статистика дня:*
+                📝 Всего пар: %d
+                🏫 Очных: %d
+                💻 Онлайн: %d
+                
+                💡 *Другие команды:*
+                /today – сегодняшнее расписание
+                /week %s – другая неделя
+                /help – все команды
+                """,
                     dayNameCapitalized.toUpperCase(),
                     weekTypeEmoji, weekTypeDisplay,
-                    scheduleText,
+                    scheduleText.toString(),
                     totalPairs,
                     offlinePairs,
                     onlinePairs,
@@ -338,45 +460,39 @@ public class CommandService {
             return reply(ctx, response);
         } catch (NumberFormatException e) {
             return reply(ctx, """
-                    ❌ *Ошибка ввода*
-                    
-                    🔢 *Правильный формат:* `/day [номер дня]`
-                    
-                    📆 *Номера дней недели:*
-                    ├ 1 – Понедельник
-                    ├ 2 – Вторник
-                    ├ 3 – Среда
-                    ├ 4 – Четверг
-                    ├ 5 – Пятница
-                    ├ 6 – Суббота
-                    └ 7 – Воскресенье
-                    
-                    💡 *Пример:* `/day 3` для среды
-                    
-                    ⚠️ *Примечание:* Бот автоматически определяет тип текущей недели
-                    и показывает расписание для соответствующего типа (четная/нечетная)
-                    """);
+                ❌ *Ошибка ввода*
+                
+                🔢 *Правильный формат:* `/day [номер дня]`
+                
+                📆 *Номера дней недели:*
+                ├ 1 – Понедельник
+                ├ 2 – Вторник
+                ├ 3 – Среда
+                ├ 4 – Четверг
+                ├ 5 – Пятница
+                ├ 6 – Суббота
+                └ 7 – Воскресенье
+                
+                💡 *Пример:* `/day 3` для среды
+                """);
         }
     }
 
     private SendMessage week(CommandContext ctx) {
         // Если нет аргументов - показываем текущую неделю
         if (ctx.getArgs().length < 2) {
-            // Автоматически определяем текущую неделю
-            String currentWeekType = getCurrentWeekType();
-            String weekTypeDisplay = getWeekTypeDisplayName(currentWeekType);
-            String weekTypeEmoji = getWeekTypeEmoji(currentWeekType);
+            // Используем WeekTypeService
+            String currentWeekType = weekTypeService.getCurrentWeekType();
+            String weekTypeDisplay = weekTypeService.getWeekTypeDisplayName(currentWeekType);
+            String weekTypeEmoji = weekTypeService.getWeekTypeEmoji(currentWeekType);
 
             // Получаем все расписание
             List<Schedule> allSchedules = scheduleService.findAllEntities();
 
-            // Фильтруем: показываем пары для текущего типа недели + пары с week_type = 'all'
+            // Фильтруем через WeekTypeService
             List<Schedule> filteredSchedules = allSchedules.stream()
                     .filter(s -> {
                         String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
-                        // Показываем если:
-                        // 1. Тип недели совпадает с текущим (odd/even)
-                        // 2. Или тип недели = "all" (показывается всегда)
                         return scheduleWeekType.equals(currentWeekType) || scheduleWeekType.equals("all");
                     })
                     .sorted(Comparator.comparing(Schedule::getDayOfWeek)
@@ -409,9 +525,6 @@ public class CommandService {
         List<Schedule> filteredSchedules = allSchedules.stream()
                 .filter(s -> {
                     String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
-                    // Показываем если:
-                    // 1. Тип недели совпадает с запрошенным (odd/even)
-                    // 2. Или тип недели = "all" (показывается всегда)
                     return scheduleWeekType.equals(weekType) || scheduleWeekType.equals("all");
                 })
                 .sorted(Comparator.comparing(Schedule::getDayOfWeek)
@@ -423,18 +536,18 @@ public class CommandService {
 
     private SendMessage formatWeekSchedule(CommandContext ctx, List<Schedule> schedules, String weekType) {
         if (schedules.isEmpty()) {
-            String weekTypeName = getWeekTypeDisplayName(weekType);
+            String weekTypeName = weekTypeService.getWeekTypeDisplayName(weekType);
             return reply(ctx, String.format("""
-                📭 *На %s неделю пар нет*
-                
-                🎉 *Можно заняться:*
-                • Самостоятельной подготовкой
-                • Работой над проектами
-                • Отдыхом и восстановлением
-                
-                💡 *Проверьте другую неделю:*
-                /week %s
-                """,
+            📭 *На %s неделю пар нет*
+            
+            🎉 *Можно заняться:*
+            • Самостоятельной подготовкой
+            • Работой над проектами
+            • Отдыхом и восстановлением
+            
+            💡 *Проверьте другую неделю:*
+            /week %s
+            """,
                     weekTypeName,
                     weekType.equals("odd") ? "even" : "odd"));
         }
@@ -445,12 +558,25 @@ public class CommandService {
 
         // Формируем вывод
         StringBuilder response = new StringBuilder();
-        String weekTypeName = getWeekTypeDisplayName(weekType);
-        String weekTypeEmoji = getWeekTypeEmoji(weekType);
+
+        // ✅ ПРАВИЛЬНЫЕ ЭМОДЗИ ДЛЯ ТИПА НЕДЕЛИ
+        String weekTypeEmoji;
+        String weekTypeName;
+
+        if ("odd".equals(weekType)) {
+            weekTypeEmoji = "1️⃣";
+            weekTypeName = "ЧИСЛИТЕЛЬ";
+        } else if ("even".equals(weekType)) {
+            weekTypeEmoji = "2️⃣";
+            weekTypeName = "ЗНАМЕНАТЕЛЬ";
+        } else {
+            weekTypeEmoji = "🔄";
+            weekTypeName = "ВСЕ";
+        }
 
         response.append(String.format("%s *НЕДЕЛЯ %s* %s\n\n",
                 weekTypeEmoji,
-                weekTypeName.toUpperCase(),
+                weekTypeName,
                 weekTypeEmoji));
 
         // Русские названия дней недели
@@ -460,9 +586,6 @@ public class CommandService {
         List<Integer> sortedDays = scheduleByDay.keySet().stream()
                 .sorted()
                 .toList();
-
-        int totalPairs = 0;
-        int onlinePairs = 0;
 
         for (Integer day : sortedDays) {
             List<Schedule> daySchedules = scheduleByDay.get(day);
@@ -474,18 +597,22 @@ public class CommandService {
                 daySchedules.sort(Comparator.comparing(Schedule::getTimeStart));
 
                 for (Schedule s : daySchedules) {
-                    totalPairs++;
-
-                    if (s.getIsOnline() != null && s.getIsOnline()) {
-                        onlinePairs++;
-                    }
-
                     String timeRange = String.format("%s-%s",
                             s.getTimeStart().format(TIME_FORMATTER),
                             s.getTimeEnd().format(TIME_FORMATTER));
 
                     String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
-                    String typeEmoji = getWeekTypeEmoji(scheduleWeekType);
+
+                    // ✅ ЭМОДЗИ ДЛЯ КАЖДОЙ ПАРЫ
+                    String typeEmoji;
+                    if ("odd".equals(scheduleWeekType)) {
+                        typeEmoji = "1️⃣";
+                    } else if ("even".equals(scheduleWeekType)) {
+                        typeEmoji = "2️⃣";
+                    } else {
+                        typeEmoji = "🔄";
+                    }
+
                     String onlineEmoji = (s.getIsOnline() != null && s.getIsOnline()) ? "💻" : "🏫";
 
                     response.append(String.format("%s %s\n", typeEmoji, onlineEmoji))
@@ -516,26 +643,6 @@ public class CommandService {
                 response.append("\n");
             }
         }
-
-        // Добавляем упрощенную статистику
-        int offlinePairs = totalPairs - onlinePairs;
-
-        response.append(String.format("""
-            📊 *СТАТИСТИКА:*
-            
-            📝 Всего пар: %d
-            🏫 Очных: %d
-            💻 Онлайн: %d
-            
-            💡 *Другие команды:*
-            /today – сегодня
-            /day [1-7] – по дням недели
-            /week %s – другая неделя
-            """,
-                totalPairs,
-                offlinePairs,
-                onlinePairs,
-                weekType.equals("odd") ? "even" : "odd"));
 
         return reply(ctx, response.toString());
     }
@@ -978,65 +1085,58 @@ public class CommandService {
 
         if (chatOpt.isEmpty()) {
             return reply(ctx, """
-                ❌ *Чат не зарегистрирован*
-                
-                💡 *Бот должен быть добавлен в группу как администратор*
-                """);
+            ❌ *Чат не зарегистрирован*
+            
+            💡 *Бот должен быть добавлен в группу как администратор*
+            """);
         }
 
         BotChat chat = chatOpt.get();
         Map<String, Object> settings = chat.getSettings();
 
+        // Настройки из YML
+        int minutesBefore = settingsConfig.getReminders().getBeforeClass().getMinutes();
+        boolean beforeClassEnabled = settingsConfig.getReminders().getBeforeClass().getEnabled();
+
+        // Проверяем, включены ли напоминания перед парой для этого чата
+        boolean chatBeforeClassEnabled = (boolean) settings.getOrDefault("before_class_enabled", beforeClassEnabled);
+
+        // Настройки из YML
+        String scheduleTime = settingsConfig.getReminders().getSchedule().getTime();
+        String deadlineTime = settingsConfig.getReminders().getDeadlines().getTime();
+        String deadlineDays = formatDaysOfWeek(settingsConfig.getReminders().getDeadlines().getDays());
+
+        // Настройки из БД чата
         boolean scheduleEnabled = (boolean) settings.getOrDefault("schedule_notifications", true);
         boolean deadlineEnabled = (boolean) settings.getOrDefault("deadline_notifications", true);
-        int minutesBefore = (int) settings.getOrDefault("reminder_before_class", 15);
-
-        // Упрощаем - получаем напоминания через BotChatService
-        List<Reminder> reminders = Collections.emptyList(); // Можно сделать через BotChatService
 
         StringBuilder response = new StringBuilder();
         response.append("🔔 *ТЕКУЩИЕ НАСТРОЙКИ НАПОМИНАНИЙ*\n\n");
 
         response.append(String.format("""
-            📅 *Расписание:*
-            • Ежедневно в 08:00 – %s
-            • За %d мин. до пары – %s
-            
-            ⏰ *Дедлайны:*
-            • Еженедельно (ВТ, ЧТ, СБ) в 10:00 – %s
-            """,
+        📅 *Расписание:*
+        • Ежедневно в %s – %s
+        • За %d мин. до пары – %s
+        
+        ⏰ *Дедлайны:*
+        • %s в %s – %s
+        """,
+                scheduleTime,
                 scheduleEnabled ? "✅ ВКЛ" : "❌ ВЫКЛ",
                 minutesBefore,
-                scheduleEnabled ? "✅ ВКЛ" : "❌ ВЫКЛ",
+                chatBeforeClassEnabled ? "✅ ВКЛ" : "❌ ВЫКЛ",
+                deadlineDays,
+                deadlineTime,
                 deadlineEnabled ? "✅ ВКЛ" : "❌ ВЫКЛ"));
 
-        response.append("\n📋 *Активные напоминания:*\n");
-        if (reminders.isEmpty()) {
-            response.append("   📭 *Напоминаний нет*\n");
-        } else {
-            for (Reminder reminder : reminders) {
-                String type = switch (reminder.getReminderType()) {
-                    case "SCHEDULE_TODAY" -> "📅 Расписание";
-                    case "DEADLINE_WEEKLY" -> "⏰ Дедлайны";
-                    default -> "🔔 Напоминание";
-                };
-                response.append(String.format("   %s в %s – %s\n",
-                        type,
-                        reminder.getScheduleTime(),
-                        reminder.getIsActive() ? "✅" : "⏸️"));
-            }
-        }
-
         response.append("""
-            
-            🔧 *Команды управления:*
-            • /reminders schedule on/off – уведомления о расписании
-            • /reminders deadlines on/off – уведомления о дедлайнах
-            • /reminders before [минуты] – напоминание перед парой
-            • /reminders list – детальный список
-            
-            ⚠️ *Только для администраторов группы*
-            """);
+        
+        🔧 *Команды управления:*
+        • /reminders schedule on/off – уведомления о расписании
+        • /reminders deadlines on/off – уведомления о дедлайнах
+        
+        ⚠️ *Только для администраторов группы*
+        """);
 
         return reply(ctx, response.toString());
     }
@@ -1044,12 +1144,12 @@ public class CommandService {
     private SendMessage handleScheduleReminders(CommandContext ctx, Long chatId) {
         if (ctx.getArgs().length < 3) {
             return reply(ctx, """
-                ❌ *Недостаточно аргументов*
-                
-                💡 *Использование:*
-                • `/reminders schedule on` – включить
-                • `/reminders schedule off` – выключить
-                """);
+            ❌ *Недостаточно аргументов*
+            
+            💡 *Использование:*
+            • `/reminders schedule on` – включить
+            • `/reminders schedule off` – выключить
+            """);
         }
 
         String action = ctx.arg(2).toLowerCase();
@@ -1057,28 +1157,32 @@ public class CommandService {
 
         botChatService.toggleScheduleNotifications(chatId, enable);
 
+        // Получаем время из конфига
+        String scheduleTime = settingsConfig.getReminders().getSchedule().getTime();
+
         return reply(ctx, String.format("""
-            %s *Уведомления о расписании %s*
-            
-            📅 *Бот будет:*
-            • Ежедневно в 08:00 отправлять расписание
-            • За N минут до каждой пары напоминать о начале
-            
-            💡 *Используйте `/reminders before [минуты]` для изменения времени*
-            """,
+        %s *Уведомления о расписании %s*
+        
+        📅 *Бот будет:*
+        • Ежедневно в %s отправлять расписание
+        • За N минут до каждой пары напоминать о начале
+        
+        💡 *Используйте `/reminders before [минуты]` для изменения времени*
+        """,
                 enable ? "✅" : "⏸️",
-                enable ? "ВКЛЮЧЕНЫ" : "ВЫКЛЮЧЕНЫ"));
+                enable ? "ВКЛЮЧЕНЫ" : "ВЫКЛЮЧЕНЫ",
+                scheduleTime));
     }
 
     private SendMessage handleDeadlineReminders(CommandContext ctx, Long chatId) {
         if (ctx.getArgs().length < 3) {
             return reply(ctx, """
-                ❌ *Недостаточно аргументов*
-                
-                💡 *Использование:*
-                • `/reminders deadlines on` – включить
-                • `/reminders deadlines off` – выключить
-                """);
+            ❌ *Недостаточно аргументов*
+            
+            💡 *Использование:*
+            • `/reminders deadlines on` – включить
+            • `/reminders deadlines off` – выключить
+            """);
         }
 
         String action = ctx.arg(2).toLowerCase();
@@ -1086,55 +1190,122 @@ public class CommandService {
 
         botChatService.toggleDeadlineNotifications(chatId, enable);
 
+        // Получаем настройки из конфига
+        String deadlineTime = settingsConfig.getReminders().getDeadlines().getTime();
+        String deadlineDays = formatDaysOfWeek(settingsConfig.getReminders().getDeadlines().getDays());
+
         return reply(ctx, String.format("""
-            %s *Уведомления о дедлайнах %s*
-            
-            ⏰ *Бот будет:*
-            • По Вт, Чт, Пт в 10:00 отправлять дедлайны на неделю
-            • Показывать актуальные задания и сроки
-            
-            💡 *Дедлайны берутся из общей базы данных*
-            """,
+        %s *Уведомления о дедлайнах %s*
+        
+        ⏰ *Бот будет:*
+        • По %s в %s отправлять дедлайны на неделю
+        • Показывать актуальные задания и сроки
+        
+        💡 *Дедлайны берутся из общей базы данных*
+        """,
                 enable ? "✅" : "⏸️",
-                enable ? "ВКЛЮЧЕНЫ" : "ВЫКЛЮЧЕНЫ"));
+                enable ? "ВКЛЮЧЕНЫ" : "ВЫКЛЮЧЕНЫ",
+                deadlineDays,
+                deadlineTime));
     }
 
     private SendMessage handleBeforeClassReminders(CommandContext ctx, Long chatId) {
         if (ctx.getArgs().length < 3) {
-            return reply(ctx, """
-                ❌ *Недостаточно аргументов*
-                
-                💡 *Использование:*
-                • `/reminders before 15` – за 15 минут до пары
-                • `/reminders before 30` – за 30 минут до пары
-                
-                ⚠️ *Минимальное значение: 5 минут*
-                *Максимальное значение: 60 минут*
-                """);
-        }
-
-        try {
-            int minutes = Integer.parseInt(ctx.arg(2));
-
-            if (minutes < 5 || minutes > 60) {
-                return reply(ctx, "❌ *Некорректное значение*\n\nВведите число от 5 до 60 минут");
-            }
-
-            botChatService.updateReminderBeforeClass(chatId, minutes);
+            int currentMinutes = settingsConfig.getReminders().getBeforeClass().getMinutes();
+            boolean enabled = settingsConfig.getReminders().getBeforeClass().getEnabled();
 
             return reply(ctx, String.format("""
-                ✅ *Напоминание перед парой обновлено!*
+            ⚙️ *НАСТРОЙКА НАПОМИНАНИЙ ПЕРЕД ПАРОЙ*
+            
+            📋 *Текущие настройки (из YML):*
+            • Включено: %s
+            • Минут до пары: %d
+            
+            💡 *Настройки минут изменяются в YML файле:*
+            telegram.reminders.before-class.minutes
+            
+            🔧 *Доступные команды:*
+            • /reminders before on – включить напоминания
+            • /reminders before off – выключить напоминания
+            • /reminders before info – эта информация
+            
+            ⚠️ *Для изменения минут обратитесь к администратору сервера*
+            """,
+                    enabled ? "✅" : "❌",
+                    currentMinutes));
+        }
+
+        String subCommand = ctx.arg(2).toLowerCase();
+
+        if ("on".equals(subCommand) || "off".equals(subCommand)) {
+            boolean enable = "on".equals(subCommand);
+            botChatService.toggleBeforeClassEnabled(chatId, enable);
+
+            int minutes = settingsConfig.getReminders().getBeforeClass().getMinutes();
+
+            return reply(ctx, String.format("""
+            %s *Напоминания перед парой %s*
+            
+            ⚙️ *Настройки из YML:*
+            • Минут до пары: %d
+            • Состояние: %s
+            
+            💡 *Бот будет напоминать за %d минут до начала пары*
+            """,
+                    enable ? "✅" : "⏸️",
+                    enable ? "ВКЛЮЧЕНЫ" : "ВЫКЛЮЧЕНЫ",
+                    minutes,
+                    enable ? "ВКЛЮЧЕНО" : "ВЫКЛЮЧЕНО",
+                    minutes));
+        }
+        else if ("info".equals(subCommand)) {
+            int minutes = settingsConfig.getReminders().getBeforeClass().getMinutes();
+            boolean enabled = settingsConfig.getReminders().getBeforeClass().getEnabled();
+
+            return reply(ctx, String.format("""
+            ℹ️ *ИНФОРМАЦИЯ О НАПОМИНАНИЯХ ПЕРЕД ПАРОЙ*
+            
+            📋 *Текущие настройки (YML):*
+            • Минут до пары: %d
+            • По умолчанию включено: %s
+            
+            ⚙️ *Как изменить:*
+            1. Откройте файл application.yml
+            2. Найдите telegram.reminders.before-class
+            3. Измените значение minutes
+            4. Перезапустите приложение
+            
+            ⚠️ *Требуется доступ к серверу*
+            """,
+                    minutes,
+                    enabled ? "✅ ДА" : "❌ НЕТ"));
+        }
+        else {
+            try {
+                int requestedMinutes = Integer.parseInt(subCommand);
+                int currentMinutes = settingsConfig.getReminders().getBeforeClass().getMinutes();
+
+                return reply(ctx, String.format("""
+                ℹ️ *ИНФОРМАЦИЯ О ЗНАЧЕНИИ МИНУТ*
                 
-                ⏰ *Теперь бот будет напоминать за %d минут до начала пары*
+                📊 *Текущее значение в YML:* %d минут
+                📊 *Запрошенное значение:* %d минут
                 
-                💡 *Напоминание включает:*
-                • Название предмета
-                • Преподавателя
-                • Место проведения
-                • Время начала
-                """, minutes));
-        } catch (NumberFormatException e) {
-            return reply(ctx, "❌ *Ошибка:* Введите число (например: 15)");
+                ⚠️ *Значение минут изменяется ТОЛЬКО в YML файле*
+                
+                💡 *Для изменения:*
+                1. Отредактируйте application.yml
+                2. Установите: telegram.reminders.before-class.minutes: %d
+                3. Перезапустите бота
+                
+                🔧 *Текущая команда не меняет значение, только показывает информацию*
+                """,
+                        currentMinutes,
+                        requestedMinutes,
+                        requestedMinutes));
+            } catch (NumberFormatException e) {
+                return reply(ctx, "❌ *Неизвестная команда*\n\nИспользуйте:\n• /reminders before on/off\n• /reminders before info\n• /reminders before [число] - информация о значении");
+            }
         }
     }
 
@@ -1214,24 +1385,36 @@ public class CommandService {
 
     // Вспомогательный метод для показа справки по reminders
     private SendMessage showRemindersHelp(CommandContext ctx) {
-        return reply(ctx, """
-            🔔 *СПРАВКА ПО КОМАНДАМ НАПОМИНАНИЙ*
-            
-            📋 *Основные команды:*
-            • `/reminders` – текущие настройки
-            • `/reminders schedule on/off` – уведомления о расписании
-            • `/reminders deadlines on/off` – уведомления о дедлайнах
-            • `/reminders before [минуты]` – напоминание перед парой
-            • `/reminders list` – список всех напоминаний
-            
-            ⏰ *Что делает бот:*
-            • *Ежедневно в 08:00* – отправляет расписание на день
-            • *За N минут до пары* – напоминает о начале занятия
-            • *По Вт, Чт, Пт в 10:00* – отправляет дедлайны на неделю
-            
-            ⚠️ *Только для администраторов группы*
-            💡 *Все данные берутся из учебной базы*
-            """);
+        // Получаем настройки из конфигурации
+        String scheduleTime = settingsConfig.getReminders().getSchedule().getTime();
+        String deadlineTime = settingsConfig.getReminders().getDeadlines().getTime();
+        int beforeClassMinutes = settingsConfig.getReminders().getBeforeClass().getMinutes();
+
+        // Получаем дни недели в читаемом формате
+        String deadlineDays = formatDaysOfWeek(settingsConfig.getReminders().getDeadlines().getDays());
+
+        return reply(ctx, String.format("""
+        🔔 *СПРАВКА ПО КОМАНДАМ НАПОМИНАНИЙ*
+        
+        📋 *Основные команды:*
+        • `/reminders` – текущие настройки
+        • `/reminders schedule on/off` – уведомления о расписании
+        • `/reminders deadlines on/off` – уведомления о дедлайнах
+        • `/reminders before [минуты]` – напоминание перед парой
+        • `/reminders list` – список всех напоминаний
+        
+        ⏰ *Что делает бот:*
+        • *Ежедневно в %s* – отправляет расписание на день
+        • *За %d минут до пары* – напоминает о начале занятия
+        • *По %s в %s* – отправляет дедлайны на неделю
+        
+        ⚠️ *Только для администраторов группы*
+        💡 *Все данные берутся из учебной базы*
+        """,
+                scheduleTime,
+                beforeClassMinutes,
+                deadlineDays,
+                deadlineTime));
     }
 
     /**
@@ -1245,7 +1428,8 @@ public class CommandService {
             }
 
             String username = user.getUserName();
-            return adminConfig.isAdminByUsername(username);
+            // Используем новую конфигурацию через settingsConfig
+            return settingsConfig.getAdmins().isAdminByUsername(username);
 
         } catch (Exception e) {
             log.error("Ошибка проверки администратора: {}", e.getMessage());
@@ -1255,7 +1439,7 @@ public class CommandService {
 
     // ====== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ФОРМАТИРОВАНИЯ ======
 
-    private String formatScheduleList(List<Schedule> scheduleList, String dayName, String context, String weekType) {
+    private String formatScheduleList(List<Schedule> scheduleList, String dayName, String context, String targetWeekType) {
         if (scheduleList.isEmpty()) {
             return String.format("На %s занятий нет.", context);
         }
@@ -1270,17 +1454,30 @@ public class CommandService {
                     s.getTimeEnd().format(TIME_FORMATTER));
 
             String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
-            String weekTypeEmoji = getWeekTypeEmoji(scheduleWeekType);
+
+            // ✅ ПРАВИЛЬНЫЕ ЭМОДЗИ ДЛЯ ТИПОВ НЕДЕЛЬ
+            String weekTypeEmoji;
+            if ("odd".equals(scheduleWeekType)) {
+                weekTypeEmoji = "1️⃣"; // числитель
+            } else if ("even".equals(scheduleWeekType)) {
+                weekTypeEmoji = "2️⃣"; // знаменатель
+            } else {
+                weekTypeEmoji = "🔄"; // all - другой
+            }
+
             Boolean isOnline = s.getIsOnline();
             String onlineEmoji = (isOnline != null && isOnline) ? "💻" : "🏫";
             String locationInfo = (isOnline != null && isOnline) ?
                     "Онлайн" : (s.getLocation() != null ? s.getLocation() : "Ауд. не указана");
 
-            // Добавляем информацию о типе недели для пары
+            // Текст типа недели
             String weekTypeText = "";
-            if (!scheduleWeekType.equals("all")) {
-                weekTypeText = String.format(" (%s)",
-                        scheduleWeekType.equals("odd") ? "числитель" : "знаменатель");
+            if ("odd".equals(scheduleWeekType)) {
+                weekTypeText = " (числитель)";
+            } else if ("even".equals(scheduleWeekType)) {
+                weekTypeText = " (знаменатель)";
+            } else {
+                weekTypeText = " (обе недели)";
             }
 
             sb.append(String.format("%d. %s %s\n", i + 1, weekTypeEmoji, onlineEmoji))
@@ -1293,26 +1490,6 @@ public class CommandService {
         }
 
         return sb.toString();
-    }
-
-    private String getWeekTypeEmoji(String weekType) {
-        if (weekType == null) {
-            return "🔄"; // Для null показываем как "all"
-        }
-        return switch (weekType.toLowerCase()) {
-            case "odd" -> "1️⃣";
-            case "even" -> "2️⃣";
-            case "all" -> "🔄";
-            default -> "🔄"; // По умолчанию
-        };
-    }
-
-    private String getWeekTypeDisplayName(String weekType) {
-        return switch (weekType.toLowerCase()) {
-            case "odd" -> "ЧИСЛИТЕЛЬ";
-            case "even" -> "ЗНАМЕНАТЕЛЬ";
-            default -> weekType.toUpperCase();
-        };
     }
 
     private LocalTime getFirstPairTime(List<Schedule> scheduleList) {
@@ -1364,22 +1541,6 @@ public class CommandService {
      * @return "odd" - нечетная, "even" - четная
      */
     public String getCurrentWeekType() {
-        LocalDate today = LocalDate.now();
-        ReminderConfig.WeekTypeConfig weekTypeConfig = reminderConfig.getWeekType();
-
-        LocalDate referenceDate = weekTypeConfig.getReferenceDateAsLocalDate();
-        String referenceWeekType = weekTypeConfig.getReferenceWeekType();
-
-        // Определяем разницу в неделях
-        long weeksBetween = java.time.temporal.ChronoUnit.WEEKS.between(
-                referenceDate.with(DayOfWeek.MONDAY),
-                today.with(DayOfWeek.MONDAY)
-        );
-
-        // Логика определения типа текущей недели
-        boolean isEvenWeek = (referenceWeekType.equals("even") && weeksBetween % 2 == 0) ||
-                (referenceWeekType.equals("odd") && weeksBetween % 2 != 0);
-
-        return isEvenWeek ? "even" : "odd";
+        return weekTypeService.getCurrentWeekType();
     }
 }

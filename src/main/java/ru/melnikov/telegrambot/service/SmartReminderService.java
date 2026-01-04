@@ -4,12 +4,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import ru.melnikov.telegrambot.bot.CommandService;
-import ru.melnikov.telegrambot.config.ReminderConfig;
-import ru.melnikov.telegrambot.model.*;
+import org.telegram.telegrambots.meta.api.methods.ParseMode;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import ru.melnikov.telegrambot.bot.TelegramBot;
+import ru.melnikov.telegrambot.config.BotSettingsConfig;
+import ru.melnikov.telegrambot.model.Schedule;
 import ru.melnikov.telegrambot.repository.BotChatRepository;
-import ru.melnikov.telegrambot.repository.ReminderRepository;
+import ru.melnikov.telegrambot.repository.ScheduleRepository;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -17,467 +19,514 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
-import java.time.temporal.ChronoUnit;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class SmartReminderService {
 
-    private final ReminderRepository reminderRepository;
+    private final BotSettingsConfig settingsConfig;
     private final BotChatRepository botChatRepository;
-    private final ScheduleService scheduleService;
-    private final DeadlineService deadlineService;
-    private final UserService userService;
-    private final TelegramMessageSender telegramMessageSender;
-    private final ReminderConfig reminderConfig;
-    private final CommandService commandService;
+    private final ScheduleRepository scheduleRepository;
+    private final ReminderMessageService reminderMessageService;
+    private final TelegramBot telegramBot;
+    private final WeekTypeService weekTypeService;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
-    private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
     private static final Locale RUSSIAN_LOCALE = new Locale("ru");
 
     /**
-     * Проверка напоминаний каждую минуту
+     * Ежедневная проверка и отправка расписания
+     * Проверяем каждую минуту в течение часа
      */
-    @Scheduled(cron = "${telegram.reminders.scheduler.check-interval:0 * * * * *}")
-    public void checkReminders() {
-        if (!reminderConfig.getScheduler().isEnabled()) {
+    @Scheduled(cron = "0 * * * * *") // Каждую минуту
+    public void checkAndSendScheduleReminders() {
+        // Получаем настройки из YAML
+        boolean scheduleEnabled = settingsConfig.getReminders().getSchedule().getEnabled();
+        LocalTime scheduleTime = settingsConfig.getReminders().getSchedule().getTimeAsLocalTime();
+        String scheduleDays = settingsConfig.getReminders().getSchedule().getDays();
+        String scheduleDaysDescription = settingsConfig.getReminders().getSchedule().getDaysDescription();
+
+        // Проверяем, включены ли напоминания о расписании
+        if (!scheduleEnabled) {
+            log.debug("⏸️ Напоминания о расписании отключены в конфигурации YAML");
             return;
         }
 
-        LocalTime now = LocalTime.now().withSecond(0).withNano(0);
+        try {
+            LocalTime currentTime = LocalTime.now();
 
-        // 1. Проверяем напоминания по времени
-        List<Reminder> timeReminders = reminderRepository.findActiveRemindersByTime(now);
-        for (Reminder reminder : timeReminders) {
-            if (shouldSendToday(reminder)) {
-                sendSmartReminder(reminder);
-                reminder.setLastSentAt(LocalDateTime.now());
-                reminderRepository.save(reminder);
-            }
-        }
+            // Проверяем, наступило ли время отправки (с точностью до минуты)
+            if (currentTime.getHour() == scheduleTime.getHour() &&
+                    currentTime.getMinute() == scheduleTime.getMinute()) {
 
-        // 2. Проверяем напоминания за N минут до пар (каждую минуту)
-        checkScheduleRemindersBeforeClass();
-    }
+                // Проверяем, должен ли сегодня отправляться reminder по дням недели
+                if (shouldSendToday(scheduleDays)) {
+                    log.info("⏰ Время отправки расписания! {} (сейчас {})",
+                            scheduleTime.format(TIME_FORMATTER),
+                            currentTime.format(TIME_FORMATTER));
+                    log.info("📅 Дни недели для расписания: {}", scheduleDaysDescription);
 
-    /**
-     * Проверка напоминаний за N минут до пар
-     */
-    private void checkScheduleRemindersBeforeClass() {
-        // Получаем все активные чаты
-        List<BotChat> activeChats = botChatRepository.findAllActiveChats();
-        LocalDateTime now = LocalDateTime.now();
-
-        for (BotChat chat : activeChats) {
-            try {
-                // Получаем настройки
-                Map<String, Object> settings = chat.getSettings();
-
-                // Проверяем, включены ли уведомления о расписании
-                if (settings != null && Boolean.TRUE.equals(settings.get("schedule_notifications"))) {
-                    Integer minutesBefore = getSettingAsInt(settings, "reminder_before_class", 15);
-
-                    // Получаем расписание на сегодня
-                    List<Schedule> todaySchedule = scheduleService.findEntitiesToday();
-
-                    // Проверяем каждую пару
-                    for (Schedule schedule : todaySchedule) {
-                        LocalTime classStart = schedule.getTimeStart();
-                        LocalTime reminderTime = classStart.minusMinutes(minutesBefore);
-
-                        // Если текущее время совпадает с временем напоминания
-                        if (now.toLocalTime().withSecond(0).withNano(0).equals(reminderTime)) {
-                            sendBeforeClassReminder(chat.getChatId(), schedule, minutesBefore);
-                        }
-                    }
+                    reminderMessageService.sendDailyScheduleToAllChats();
+                    log.info("✅ Расписание успешно отправлено в {}:{}",
+                            currentTime.getHour(), currentTime.getMinute());
+                } else {
+                    log.debug("⏸️ Сегодня не день для отправки расписания (дни недели: {})",
+                            scheduleDaysDescription);
                 }
-            } catch (Exception e) {
-                log.error("Ошибка проверки напоминаний для чата {}: {}", chat.getChatId(), e.getMessage());
             }
+        } catch (Exception e) {
+            log.error("❌ Ошибка при отправке расписания: {}", e.getMessage(), e);
         }
     }
 
     /**
-     * Генерация умного сообщения для напоминания
+     * Проверка напоминаний перед парой каждую минуту
      */
-    private String generateSmartMessage(Reminder reminder) {
-        return switch (reminder.getReminderType()) {
-            case "SCHEDULE_TODAY" -> generateTodayScheduleMessage(reminder.getChatId());
-            case "DEADLINE_WEEKLY" -> generateWeeklyDeadlinesMessage(reminder.getChatId());
-            default -> "🔔 Напоминание";
-        };
-    }
+    @Scheduled(cron = "0 * * * * *") // Каждую минуту
+    public void checkBeforeClassReminders() {
+        // Получаем минуты из YML
+        int minutesBefore = settingsConfig.getReminders().getBeforeClass().getMinutes();
+        boolean enabled = settingsConfig.getReminders().getBeforeClass().getEnabled();
 
-    /**
-     * Генерация сообщения с расписанием на сегодня
-     */
-    private String generateTodayScheduleMessage(Long chatId) {
-        List<Schedule> scheduleList = scheduleService.findEntitiesToday();
-
-        if (scheduleList.isEmpty()) {
-            DayOfWeek today = LocalDate.now().getDayOfWeek();
-            String dayName = today.getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE);
-
-            return String.format("""
-                    📅 *РАСПИСАНИЕ НА СЕГОДНЯ*
-                    *%s*
-                    
-                    🎉 *Сегодня занятий нет!*
-                    
-                    💡 *Можно заняться:* • Самостоятельной подготовкой • Отдыхом
-                    """,
-                    dayName.substring(0, 1).toUpperCase() + dayName.substring(1));
+        if (!enabled) {
+            log.debug("⏸️ Напоминания перед парой отключены в конфигурации YAML");
+            return;
         }
 
-        // Фильтруем расписание для текущей недели
-        String currentWeekType = getCurrentWeekType();
-        List<Schedule> filteredSchedule = scheduleList.stream()
-                .filter(s -> {
-                    String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
-                    return scheduleWeekType.equals(currentWeekType) || scheduleWeekType.equals("all");
-                })
-                .sorted(Comparator.comparing(Schedule::getTimeStart))
-                .toList();
-
-        return formatScheduleForReminder(filteredSchedule, "сегодня");
-    }
-
-    /**
-     * Генерация сообщения о дедлайнах на неделю
-     */
-    private String generateWeeklyDeadlinesMessage(Long chatId) {
-        List<Deadline> allDeadlines = deadlineService.findAllDeadlinesSorted();
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime weekEnd = now.plusDays(7);
+        LocalTime checkTime = now.toLocalTime();
 
-        // Фильтруем дедлайны на ближайшую неделю
-        List<Deadline> weeklyDeadlines = allDeadlines.stream()
-                .filter(d -> {
-                    LocalDateTime deadline = d.getDeadlineAt();
-                    return !deadline.isBefore(now) && deadline.isBefore(weekEnd);
-                })
-                .sorted(Comparator.comparing(Deadline::getDeadlineAt))
-                .toList();
+        log.debug("⏳ Проверка напоминаний перед парой (за {} минут) в {}",
+                minutesBefore, checkTime.format(TIME_FORMATTER));
 
-        if (weeklyDeadlines.isEmpty()) {
-            return """
-                    ⏰ *ДЕДЛАЙНЫ НА НЕДЕЛЮ*
-                    
-                    🎉 *На этой неделе дедлайнов нет!*
-                    
-                    💡 *Можно заняться:* 
-                     • Опережающей подготовкой 
-                     • Повторением материала
-                    """;
+        // Получаем все активные группы с включенными напоминаниями
+        List<Object[]> activeChats = botChatRepository.findAllActiveGroupsWithBeforeClass();
+
+        if (activeChats.isEmpty()) {
+            log.debug("📭 Нет активных чатов с включенными напоминаниями перед парой");
+            return;
         }
 
-        // Группируем дедлайны по дням
-        Map<LocalDate, List<Deadline>> deadlinesByDay = weeklyDeadlines.stream()
-                .collect(Collectors.groupingBy(d -> d.getDeadlineAt().toLocalDate()));
+        log.debug("🔍 Найдено {} активных чатов для проверки", activeChats.size());
 
-        StringBuilder message = new StringBuilder();
-        message.append("⏰ *ДЕДЛАЙНЫ НА БЛИЖАЙШУЮ НЕДЕЛЮ*\n\n");
+        for (Object[] chatData : activeChats) {
+            Long chatId = (Long) chatData[0];
+            boolean beforeClassEnabled = (boolean) chatData[1];
 
-        // Сортируем дни
-        List<LocalDate> sortedDays = new ArrayList<>(deadlinesByDay.keySet());
-        Collections.sort(sortedDays);
-
-        for (LocalDate day : sortedDays) {
-            String dayName = day.getDayOfWeek().getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE);
-            message.append(String.format("📅 *%s (%s)*\n",
-                    day.format(DateTimeFormatter.ofPattern("dd.MM")),
-                    dayName.substring(0, 1).toUpperCase() + dayName.substring(1)));
-
-            for (Deadline deadline : deadlinesByDay.get(day)) {
-                long daysUntil = ChronoUnit.DAYS.between(now.toLocalDate(), day);
-
-                String urgency;
-                if (daysUntil == 0) urgency = "🔴 СЕГОДНЯ";
-                else if (daysUntil <= 2) urgency = "🟡 СКОРО";
-                else urgency = "🟢 НА ЭТОЙ НЕДЕЛЕ";
-
-                message.append(String.format("   %s *%s*\n", urgency, deadline.getTitle()))
-                        .append(String.format("      ⏰ %s\n",
-                                deadline.getDeadlineAt().format(DATETIME_FORMATTER)))
-                        .append(String.format("      📝 %s\n",
-                                deadline.getDescription() != null && !deadline.getDescription().isBlank() ?
-                                        deadline.getDescription() : "Без описания"));
-
-                if (deadline.getLinkUrl() != null && !deadline.getLinkUrl().isBlank()) {
-                    String linkText = deadline.getLinkText() != null && !deadline.getLinkText().isBlank() ?
-                            deadline.getLinkText() : "Ссылка";
-                    message.append(String.format("      🔗 [%s](%s)\n", linkText, deadline.getLinkUrl()));
-                }
-
-                message.append("\n");
+            if (beforeClassEnabled) {
+                // Логика проверки и отправки напоминаний
+                sendBeforeClassReminderIfNeeded(chatId, minutesBefore, checkTime, now.toLocalDate());
             }
-
-            message.append("\n");
         }
-
-        return message.toString();
     }
 
     /**
-     * Форматирование расписания для напоминания
+     * Отправка напоминания перед парой, если нужно
      */
-    private String formatScheduleForReminder(List<Schedule> scheduleList, String context) {
-        if (scheduleList.isEmpty()) {
-            return String.format("📭 *На %s пар нет*", context);
+    private void sendBeforeClassReminderIfNeeded(Long chatId, int minutesBefore, LocalTime checkTime, LocalDate today) {
+        try {
+            // Определяем день недели (1-7)
+            DayOfWeek dayOfWeek = today.getDayOfWeek();
+            int dayNumber = dayOfWeek.getValue();
+
+            // Получаем текущий тип недели
+            String currentWeekType = weekTypeService.getCurrentWeekType();
+
+            // Получаем все пары на сегодня
+            List<Schedule> allSchedules = scheduleRepository.findByDayOfWeek(dayNumber);
+
+            if (allSchedules.isEmpty()) {
+                log.debug("📭 Нет пар в базе данных для {} (день {})",
+                        dayOfWeek.getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE), dayNumber);
+                return;
+            }
+
+            // Фильтруем пары для текущего типа недели
+            List<Schedule> todaySchedules = allSchedules.stream()
+                    .filter(s -> {
+                        String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
+                        return scheduleWeekType.equals(currentWeekType) || scheduleWeekType.equals("all");
+                    })
+                    .filter(s -> s.getTimeStart() != null)
+                    .sorted((s1, s2) -> s1.getTimeStart().compareTo(s2.getTimeStart()))
+                    .toList();
+
+            if (todaySchedules.isEmpty()) {
+                log.debug("📭 Нет пар на сегодня для типа недели: {}", currentWeekType);
+                return;
+            }
+
+            log.debug("📅 Найдено {} пар на сегодня для чата {} (тип недели: {})",
+                    todaySchedules.size(), chatId, currentWeekType);
+
+            // Проверяем каждую пару
+            for (Schedule schedule : todaySchedules) {
+                LocalTime classStartTime = schedule.getTimeStart();
+
+                // Вычисляем время напоминания
+                LocalTime reminderTime = classStartTime.minusMinutes(minutesBefore);
+
+                // Проверяем, пора ли отправлять напоминание
+                if (isTimeToSendReminder(checkTime, reminderTime)) {
+                    // Отправляем напоминание
+                    sendBeforeClassReminder(chatId, schedule, minutesBefore, currentWeekType);
+                    log.info("✅ Отправлено напоминание для чата {} о паре '{}' (начало в {}, напоминание за {} минут)",
+                            chatId, schedule.getSubject(),
+                            classStartTime.format(TIME_FORMATTER), minutesBefore);
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("❌ Ошибка при проверке напоминаний для чата {}: {}", chatId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Проверяет, пора ли отправлять напоминание
+     */
+    private boolean isTimeToSendReminder(LocalTime currentTime, LocalTime reminderTime) {
+        // Сравниваем время с точностью до минуты
+        LocalTime currentTimeRounded = LocalTime.of(currentTime.getHour(), currentTime.getMinute());
+        LocalTime reminderTimeRounded = LocalTime.of(reminderTime.getHour(), reminderTime.getMinute());
+
+        boolean shouldSend = currentTimeRounded.equals(reminderTimeRounded);
+
+        if (shouldSend) {
+            log.debug("⏰ Время отправки напоминания! Текущее: {}, Напоминание: {}",
+                    currentTimeRounded.format(TIME_FORMATTER),
+                    reminderTimeRounded.format(TIME_FORMATTER));
         }
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("📅 *РАСПИСАНИЕ НА ").append(context.toUpperCase()).append("*\n\n");
+        return shouldSend;
+    }
 
-        for (int i = 0; i < scheduleList.size(); i++) {
-            Schedule s = scheduleList.get(i);
+    /**
+     * Отправляет напоминание о предстоящей паре
+     */
+    private void sendBeforeClassReminder(Long chatId, Schedule schedule, int minutesBefore, String weekType) {
+        try {
+            String dayName = DayOfWeek.of(schedule.getDayOfWeek())
+                    .getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE);
+            dayName = dayName.substring(0, 1).toUpperCase() + dayName.substring(1);
+
+            String weekTypeEmoji = weekTypeService.getWeekTypeEmoji(weekType);
+            String weekTypeName = weekTypeService.getWeekTypeDisplayName(weekType);
+
             String timeRange = String.format("%s-%s",
-                    s.getTimeStart().format(TIME_FORMATTER),
-                    s.getTimeEnd().format(TIME_FORMATTER));
+                    schedule.getTimeStart().format(TIME_FORMATTER),
+                    schedule.getTimeEnd().format(TIME_FORMATTER));
 
-            String weekTypeEmoji = getWeekTypeEmoji(s.getWeekType());
-            Boolean isOnline = s.getIsOnline();
-            String onlineEmoji = (isOnline != null && isOnline) ? "💻" : "🏫";
-            String locationInfo = (isOnline != null && isOnline) ?
-                    "💻 Онлайн" : (s.getLocation() != null ? s.getLocation() : "Аудитория не указана");
+            String location = schedule.getIsOnline() != null && schedule.getIsOnline() ?
+                    "💻 Онлайн" :
+                    (schedule.getLocation() != null ? "📍 " + schedule.getLocation() : "🏫 Аудитория не указана");
 
-            sb.append(String.format("%d. %s %s\n", i + 1, weekTypeEmoji, onlineEmoji))
-                    .append(String.format("   ⏰ *%s*\n", timeRange))
-                    .append(String.format("   📖 %s\n", s.getSubject()))
-                    .append(String.format("   👨‍🏫 %s\n",
-                            s.getTeacher() != null ? s.getTeacher() : "Преподаватель не указан"))
-                    .append(String.format("   📍 %s\n", locationInfo))
-                    .append("\n");
-        }
+            String teacher = schedule.getTeacher() != null ? schedule.getTeacher() : "Преподаватель не указан";
 
-        // Добавляем статистику
-        int onlinePairs = (int) scheduleList.stream()
-                .filter(s -> s.getIsOnline() != null && s.getIsOnline())
-                .count();
+            // Эмодзи для типа недели пары
+            String scheduleWeekType = schedule.getWeekType() != null ? schedule.getWeekType() : "all";
+            String pairWeekTypeEmoji = "odd".equals(scheduleWeekType) ? "1️⃣" :
+                    "even".equals(scheduleWeekType) ? "2️⃣" : "🔄";
+            String pairWeekTypeText = "odd".equals(scheduleWeekType) ? "числитель" :
+                    "even".equals(scheduleWeekType) ? "знаменатель" : "обе недели";
 
-        sb.append(String.format("""
-                📊 *Статистика дня:*
-                📝 Всего пар: %d
-                💻 Онлайн: %d
-                🏫 Очных: %d
-                """,
-                scheduleList.size(),
-                onlinePairs,
-                scheduleList.size() - onlinePairs));
+            String message = String.format("""
+                    🔔 *НАПОМИНАНИЕ О ПРЕДСТОЯЩЕЙ ПАРЕ*
+                    
+                    📅 *%s* | %s %s
+                    ⏰ *До начала осталось:* %d минут
+                    
+                    %s *%s* (%s)
+                    👨‍🏫 *Преподаватель:* %s
+                    %s
+                    🕐 *Время:* %s
+                    
+                    🚀 *Удачной пары!*
+                    """,
+                    dayName, weekTypeEmoji, weekTypeName,
+                    minutesBefore,
+                    pairWeekTypeEmoji, schedule.getSubject(), pairWeekTypeText,
+                    teacher,
+                    location,
+                    timeRange);
 
-        return sb.toString();
-    }
+            SendMessage sendMessage = SendMessage.builder()
+                    .chatId(chatId.toString())
+                    .text(message)
+                    .parseMode(ParseMode.MARKDOWN)
+                    .build();
 
-    /**
-     * Форматирование сообщения перед парой
-     */
-    private String formatBeforeClassMessage(Schedule schedule, int minutesBefore) {
-        String weekTypeEmoji = getWeekTypeEmoji(schedule.getWeekType());
-        String onlineEmoji = (schedule.getIsOnline() != null && schedule.getIsOnline()) ? "💻" : "🏫";
+            telegramBot.execute(sendMessage);
 
-        return String.format("""
-                🔔 *НАПОМИНАНИЕ О ПАРЕ*
-                
-                %s %s *Через %d минут начинается пара*
-                
-                📖 *Предмет:* %s
-                👨‍🏫 *Преподаватель:* %s
-                📍 *Место:* %s
-                ⏰ *Время:* %s - %s
-                
-                ⚡ *Успейте подготовиться!*
-                """,
-                weekTypeEmoji, onlineEmoji, minutesBefore,
-                schedule.getSubject(),
-                schedule.getTeacher() != null ? schedule.getTeacher() : "Не указан",
-                schedule.getIsOnline() != null && schedule.getIsOnline() ?
-                        "💻 Онлайн" :
-                        (schedule.getLocation() != null ? schedule.getLocation() : "Не указана"),
-                schedule.getTimeStart().format(TIME_FORMATTER),
-                schedule.getTimeEnd().format(TIME_FORMATTER));
-    }
-
-    /**
-     * Получение текущего типа недели
-     */
-    private String getCurrentWeekType() {
-        LocalDate today = LocalDate.now();
-        LocalDate referenceDate = LocalDate.of(2024, 9, 2); // Начало учебного года
-        long weeksBetween = java.time.temporal.ChronoUnit.WEEKS.between(
-                referenceDate.with(DayOfWeek.MONDAY),
-                today.with(DayOfWeek.MONDAY)
-        );
-        return weeksBetween % 2 == 0 ? "even" : "odd";
-    }
-
-    /**
-     * Получение эмодзи типа недели
-     */
-    private String getWeekTypeEmoji(String weekType) {
-        if (weekType == null) return "🔄";
-        return switch (weekType.toLowerCase()) {
-            case "odd" -> "1️⃣";
-            case "even" -> "2️⃣";
-            case "all" -> "🔄";
-            default -> "🔄";
-        };
-    }
-
-    /**
-     * Инициализация умных напоминаний для чата
-     */
-    @Transactional
-    public void initializeSmartReminders(Long chatId, Long userId) {
-        try {
-            User user = userService.findById(userId);
-
-            // 1. Проверяем, не созданы ли уже напоминания
-            Optional<Reminder> existingSchedule = reminderRepository.findByChatIdAndType(chatId, "SCHEDULE_TODAY");
-            Optional<Reminder> existingDeadline = reminderRepository.findByChatIdAndType(chatId, "DEADLINE_WEEKLY");
-
-            // 2. Ежедневное расписание
-            if (reminderConfig.getSchedule().isEnabled()) {
-                Reminder scheduleReminder = Reminder.builder()
-                        .chatId(chatId)
-                        .reminderType("SCHEDULE_TODAY")
-                        .scheduleTime(reminderConfig.getSchedule().getTimeAsLocalTime())
-                        .daysOfWeek(reminderConfig.getSchedule().getDays())
-                        .isActive(true)
-                        .build();
-
-                reminderRepository.save(scheduleReminder);
-            }
-
-            // 3. Еженедельные дедлайны
-            if (reminderConfig.getDeadlines().isEnabled()) {
-                // Создаем напоминание о дедлайнах
-                Reminder deadlineReminder = Reminder.builder()
-                        .chatId(chatId)
-                        .reminderType("DEADLINE_WEEKLY")
-                        .scheduleTime(reminderConfig.getDeadlines().getTimeAsLocalTime())
-                        .daysOfWeek(reminderConfig.getDeadlines().getDays())
-                        .isActive(true)
-                        .build();
-
-                reminderRepository.save(deadlineReminder);
-            }
-
-            log.info("Инициализированы умные напоминания для чата {}", chatId);
+        } catch (TelegramApiException e) {
+            log.error("❌ Ошибка отправки напоминания в чат {}: {}", chatId, e.getMessage());
         } catch (Exception e) {
-            log.error("Ошибка инициализации напоминаний для чата {}: {}", chatId, e.getMessage());
+            log.error("❌ Неожиданная ошибка при отправке напоминания в чат {}: {}", chatId, e.getMessage(), e);
         }
     }
 
     /**
-     * Получение списка напоминаний для чата
+     * Ежедневная проверка и отправка дедлайнов
      */
-    @Transactional(readOnly = true)
-    public List<Reminder> getChatReminders(Long chatId) {
-        return reminderRepository.findByChatIdAndIsActiveTrue(chatId);
-    }
+    @Scheduled(cron = "0 * * * * *") // Каждую минуту
+    public void checkAndSendDeadlineReminders() {
+        // Получаем настройки из YAML
+        boolean deadlinesEnabled = settingsConfig.getReminders().getDeadlines().getEnabled();
+        LocalTime deadlineTime = settingsConfig.getReminders().getDeadlines().getTimeAsLocalTime();
+        String deadlineDays = settingsConfig.getReminders().getDeadlines().getDays();
+        String deadlineDaysDescription = settingsConfig.getReminders().getDeadlines().getDaysDescription();
 
-    /**
-     * Включение/выключение напоминаний
-     */
-    @Transactional
-    public void toggleReminderType(Long chatId, String reminderType, boolean active) {
-        reminderRepository.findByChatIdAndType(chatId, reminderType).ifPresent(reminder -> {
-            reminder.setIsActive(active);
-            reminderRepository.save(reminder);
-        });
-    }
+        // Проверяем, включены ли напоминания о дедлайнах
+        if (!deadlinesEnabled) {
+            log.debug("⏸️ Напоминания о дедлайнах отключены в конфигурации YAML");
+            return;
+        }
 
-    /**
-     * Обновление времени напоминаний
-     */
-    @Transactional
-    public void updateReminderTime(Long chatId, String reminderType, LocalTime newTime) {
-        reminderRepository.findByChatIdAndType(chatId, reminderType).ifPresent(reminder -> {
-            reminder.setScheduleTime(newTime);
-            reminderRepository.save(reminder);
-        });
-    }
-
-    /**
-     * Вспомогательный метод для получения настройки как Integer
-     */
-    private Integer getSettingAsInt(Map<String, Object> settings, String key, Integer defaultValue) {
         try {
-            if (settings != null && settings.containsKey(key)) {
-                Object value = settings.get(key);
-                if (value instanceof Integer) {
-                    return (Integer) value;
-                } else if (value instanceof String) {
-                    return Integer.parseInt((String) value);
-                } else if (value instanceof Boolean) {
-                    return (Boolean) value ? 15 : 0; // Если булево значение, возвращаем 15 или 0
+            LocalTime currentTime = LocalTime.now();
+
+            // Проверяем, наступило ли время отправки
+            if (currentTime.getHour() == deadlineTime.getHour() &&
+                    currentTime.getMinute() == deadlineTime.getMinute()) {
+
+                // Проверяем дни недели
+                if (shouldSendToday(deadlineDays)) {
+                    log.info("⏰ Время отправки дедлайнов! {} (сейчас {})",
+                            deadlineTime.format(TIME_FORMATTER),
+                            currentTime.format(TIME_FORMATTER));
+                    log.info("📅 Дни недели для дедлайнов: {}", deadlineDaysDescription);
+
+                    reminderMessageService.sendWeeklyDeadlinesToAllChats();
+                    log.info("✅ Дедлайны успешно отправлены в {}:{}",
+                            currentTime.getHour(), currentTime.getMinute());
+                } else {
+                    log.debug("⏸️ Сегодня не день для отправки дедлайнов (дни недели: {})",
+                            deadlineDaysDescription);
                 }
             }
         } catch (Exception e) {
-            log.warn("Не удалось получить настройку {} как Integer", key);
+            log.error("❌ Ошибка при отправке дедлайнов: {}", e.getMessage(), e);
         }
-        return defaultValue;
     }
 
     /**
-     * Проверка, нужно ли отправлять напоминание сегодня
+     * Проверяет, нужно ли отправлять reminder сегодня
+     * @param daysPattern Паттерн дней недели из YAML (7 символов: 1-включен, 0-выключен)
      */
-    private boolean shouldSendToday(Reminder reminder) {
-        if (reminder.getDaysOfWeek() == null || reminder.getDaysOfWeek().length() != 7) {
-            return true;
+    private boolean shouldSendToday(String daysPattern) {
+        if (daysPattern == null || daysPattern.length() != 7) {
+            log.warn("❌ Некорректный паттерн дней недели из YAML: {}", daysPattern);
+            return false;
         }
 
-        DayOfWeek today = LocalDate.now().getDayOfWeek();
-        int dayIndex = today.getValue() - 1;
-        return reminder.getDaysOfWeek().charAt(dayIndex) == '1';
+        // Получаем индекс дня недели (0-Пн, 1-Вт, ..., 6-Вс)
+        int dayOfWeekIndex = LocalDate.now().getDayOfWeek().getValue() - 1;
+
+        if (dayOfWeekIndex >= 0 && dayOfWeekIndex < daysPattern.length()) {
+            char dayChar = daysPattern.charAt(dayOfWeekIndex);
+            boolean shouldSend = dayChar == '1';
+
+            log.debug("Проверка дня недели: индекс={}, символ={}, отправлять={}",
+                    dayOfWeekIndex, dayChar, shouldSend);
+
+            return shouldSend;
+        }
+
+        return false;
     }
 
     /**
-     * Отправка интеллектуального напоминания
+     * Тестовый метод для ручной отправки расписания
      */
-    private void sendSmartReminder(Reminder reminder) {
+    public void sendTestScheduleNow() {
         try {
-            String message = generateSmartMessage(reminder);
-            if (message != null && !message.trim().isEmpty()) {
-                telegramMessageSender.sendMarkdownMessage(reminder.getChatId(), message);
-                log.info("Отправлено умное напоминание {} в чат {}", reminder.getId(), reminder.getChatId());
-            }
+            log.info("🚀 Тестовая отправка расписания (игнорируя настройки времени)...");
+            reminderMessageService.sendDailyScheduleToAllChats();
         } catch (Exception e) {
-            log.error("Ошибка отправки напоминания в чат {}: {}", reminder.getChatId(), e.getMessage());
+            log.error("❌ Ошибка тестовой отправки расписания: {}", e.getMessage(), e);
         }
     }
 
     /**
-     * Отправка напоминания за N минут до пары
+     * Тестовый метод для ручной отправки дедлайнов
      */
-    private void sendBeforeClassReminder(Long chatId, Schedule schedule, int minutesBefore) {
+    public void sendTestDeadlinesNow() {
         try {
-            String message = formatBeforeClassMessage(schedule, minutesBefore);
-            telegramMessageSender.sendMarkdownMessage(chatId, message);
-            log.info("Отправлено напоминание перед парой в чат {}", chatId);
+            log.info("🚀 Тестовая отправка дедлайнов (игнорируя настройки времени)...");
+            reminderMessageService.sendWeeklyDeadlinesToAllChats();
         } catch (Exception e) {
-            log.error("Ошибка отправки напоминания перед парой в чат {}: {}", chatId, e.getMessage());
+            log.error("❌ Ошибка тестовой отправки дедлайнов: {}", e.getMessage(), e);
         }
     }
 
     /**
-     * Получение расписания на сегодня с учетом типа недели
+     * Возвращает текущие настройки из YAML для отладки
      */
-    private List<Schedule> getFilteredScheduleForToday() {
-        List<Schedule> scheduleList = scheduleService.findEntitiesToday();
-        String currentWeekType = commandService.getCurrentWeekType();
+    public String getCurrentSettingsInfo() {
+        return String.format("""
+            📊 ТЕКУЩИЕ НАСТРОЙКИ ИЗ YAML:
+            
+            📅 Расписание:
+            • Включено: %s
+            • Время: %s
+            • Дни недели: %s (%s)
+            
+            ⏰ Дедлайны:
+            • Включено: %s
+            • Время: %s
+            • Дни недели: %s (%s)
+            
+            ⏳ Перед парой:
+            • Включено: %s
+            • За минут: %d
+            
+            ⚙️ Общие:
+            • Шедулер включен: %s
+            • Интервал проверки: %s
+            
+            📅 Тип недели:
+            • Дата отсчета: %s
+            • Тип на дату отсчета: %s
+            
+            🕐 Текущее время: %s
+            """,
 
-        // Фильтруем по типу недели (odd/even + all)
-        return scheduleList.stream()
-                .filter(s -> {
-                    String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
-                    return scheduleWeekType.equals(currentWeekType) || scheduleWeekType.equals("all");
-                })
-                .sorted(Comparator.comparing(Schedule::getTimeStart))
-                .toList();
+                // Расписание
+                settingsConfig.getReminders().getSchedule().getEnabled(),
+                settingsConfig.getReminders().getSchedule().getTime(),
+                settingsConfig.getReminders().getSchedule().getDays(),
+                settingsConfig.getReminders().getSchedule().getDaysDescription(),
+
+                // Дедлайны
+                settingsConfig.getReminders().getDeadlines().getEnabled(),
+                settingsConfig.getReminders().getDeadlines().getTime(),
+                settingsConfig.getReminders().getDeadlines().getDays(),
+                settingsConfig.getReminders().getDeadlines().getDaysDescription(),
+
+                // Перед парой
+                settingsConfig.getReminders().getBeforeClass().getEnabled(),
+                settingsConfig.getReminders().getBeforeClass().getMinutes(),
+
+                // Общие
+                settingsConfig.getReminders().getScheduler().getEnabled(),
+                settingsConfig.getReminders().getScheduler().getCheckInterval(),
+
+                // Тип недели
+                settingsConfig.getReminders().getWeekType().getReferenceDate(),
+                settingsConfig.getReminders().getWeekType().getReferenceWeekType(),
+
+                // Текущее время
+                LocalTime.now().format(TIME_FORMATTER)
+        );
+    }
+
+    /**
+     * Возвращает, будет ли сегодня отправка по текущим настройкам
+     */
+    public Map<String, Object> getTodaySendStatus() {
+        Map<String, Object> status = new HashMap<>();
+
+        // Текущий день недели
+        String[] dayNames = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"};
+        int todayIndex = LocalDate.now().getDayOfWeek().getValue() - 1;
+        String todayName = dayNames[todayIndex];
+
+        // Получаем символы для сегодня
+        String scheduleDays = settingsConfig.getReminders().getSchedule().getDays();
+        String deadlineDays = settingsConfig.getReminders().getDeadlines().getDays();
+
+        char scheduleChar = '0';
+        char deadlineChar = '0';
+
+        if (scheduleDays != null && scheduleDays.length() > todayIndex) {
+            scheduleChar = scheduleDays.charAt(todayIndex);
+        }
+
+        if (deadlineDays != null && deadlineDays.length() > todayIndex) {
+            deadlineChar = deadlineDays.charAt(todayIndex);
+        }
+
+        status.put("scheduleEnabled", settingsConfig.getReminders().getSchedule().getEnabled());
+        status.put("deadlinesEnabled", settingsConfig.getReminders().getDeadlines().getEnabled());
+        status.put("scheduleToday", scheduleChar == '1');
+        status.put("deadlinesToday", deadlineChar == '1');
+        status.put("today", todayName);
+        status.put("scheduleTime", settingsConfig.getReminders().getSchedule().getTime());
+        status.put("deadlineTime", settingsConfig.getReminders().getDeadlines().getTime());
+        status.put("beforeClassEnabled", settingsConfig.getReminders().getBeforeClass().getEnabled());
+        status.put("beforeClassMinutes", settingsConfig.getReminders().getBeforeClass().getMinutes());
+
+        // Добавляем информацию о текущем времени
+        status.put("currentTime", LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm")));
+        status.put("scheduleWillSend",
+                settingsConfig.getReminders().getSchedule().getEnabled() &&
+                        scheduleChar == '1');
+        status.put("deadlinesWillSend",
+                settingsConfig.getReminders().getDeadlines().getEnabled() &&
+                        deadlineChar == '1');
+
+        return status;
+    }
+
+    /**
+     * Проверяет, активны ли сейчас напоминания перед парой
+     * Для тестирования и отладки
+     */
+    public Map<String, Object> checkBeforeClassStatus() {
+        Map<String, Object> status = new HashMap<>();
+
+        int minutesBefore = settingsConfig.getReminders().getBeforeClass().getMinutes();
+        boolean enabled = settingsConfig.getReminders().getBeforeClass().getEnabled();
+
+        status.put("enabled", enabled);
+        status.put("minutes", minutesBefore);
+        status.put("currentTime", LocalTime.now().format(TIME_FORMATTER));
+
+        if (enabled) {
+            // Получаем активные чаты
+            List<Object[]> activeChats = botChatRepository.findAllActiveGroupsWithBeforeClass();
+            status.put("activeChatsCount", activeChats.size());
+
+            // Проверяем, есть ли пары на сегодня
+            LocalDate today = LocalDate.now();
+            DayOfWeek dayOfWeek = today.getDayOfWeek();
+            int dayNumber = dayOfWeek.getValue();
+            String currentWeekType = weekTypeService.getCurrentWeekType();
+
+            List<Schedule> allSchedules = scheduleRepository.findByDayOfWeek(dayNumber);
+            List<Schedule> todaySchedules = allSchedules.stream()
+                    .filter(s -> {
+                        String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
+                        return scheduleWeekType.equals(currentWeekType) || scheduleWeekType.equals("all");
+                    })
+                    .filter(s -> s.getTimeStart() != null)
+                    .sorted((s1, s2) -> s1.getTimeStart().compareTo(s2.getTimeStart()))
+                    .toList();
+
+            status.put("todaySchedulesCount", todaySchedules.size());
+            status.put("today", today.toString());
+            status.put("dayOfWeek", dayOfWeek.getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE));
+            status.put("weekType", currentWeekType);
+
+            // Проверяем ближайшие напоминания
+            List<Map<String, Object>> upcomingReminders = todaySchedules.stream()
+                    .map(schedule -> {
+                        Map<String, Object> reminderInfo = new HashMap<>();
+                        reminderInfo.put("subject", schedule.getSubject());
+                        reminderInfo.put("startTime", schedule.getTimeStart().format(TIME_FORMATTER));
+                        reminderInfo.put("reminderTime", schedule.getTimeStart().minusMinutes(minutesBefore).format(TIME_FORMATTER));
+                        reminderInfo.put("minutesBefore", minutesBefore);
+                        return reminderInfo;
+                    })
+                    .toList();
+
+            status.put("upcomingReminders", upcomingReminders);
+        }
+
+        return status;
     }
 }

@@ -14,7 +14,11 @@ public interface BotChatRepository extends JpaRepository<BotChat, Long> {
 
     List<BotChat> findByIsActiveTrue();
 
-    @Query("SELECT c FROM BotChat c WHERE c.isActive = true AND c.chatType IN ('GROUP', 'SUPERGROUP')")
+    @Query(value = """
+        SELECT * FROM bot_chats c 
+        WHERE c.is_active = true 
+        AND c.chat_type IN ('group', 'supergroup', 'GROUP', 'SUPERGROUP')
+    """, nativeQuery = true)
     List<BotChat> findAllActiveGroups();
 
     boolean existsByChatId(Long chatId);
@@ -23,14 +27,35 @@ public interface BotChatRepository extends JpaRepository<BotChat, Long> {
     @Query("SELECT c FROM BotChat c WHERE c.isActive = true")
     List<BotChat> findAllActiveChats();
 
-    // Для работы с JSON в PostgreSQL используем функцию jsonb_extract_path_text
-    @Query(value = "SELECT * FROM bot_chats c WHERE c.is_active = true AND " +
-            "jsonb_extract_path_text(c.settings, 'schedule_notifications') = 'true'",
-            nativeQuery = true)
+    @Query(value = """
+        SELECT * FROM bot_chats c 
+        WHERE c.is_active = true 
+        AND c.chat_type IN ('group', 'supergroup', 'GROUP', 'SUPERGROUP')
+        AND (
+           c.settings->>'schedule_notifications' = 'true' 
+           OR c.settings->>'schedule_notifications' IS NULL
+     )
+    """, nativeQuery = true)
     List<BotChat> findChatsWithScheduleNotifications();
 
-    @Query(value = "SELECT * FROM bot_chats c WHERE c.is_active = true AND " +
-            "jsonb_extract_path_text(c.settings, 'deadline_notifications') = 'true'",
-            nativeQuery = true)
+    @Query(value = """
+        SELECT * FROM bot_chats c 
+        WHERE c.is_active = true 
+        AND c.chat_type IN ('group', 'supergroup', 'GROUP', 'SUPERGROUP')
+        AND (
+         c.settings->>'deadline_notifications' = 'true' 
+            OR c.settings->>'deadline_notifications' IS NULL
+        )
+    """, nativeQuery = true)
     List<BotChat> findChatsWithDeadlineNotifications();
+
+    @Query(value = """
+        SELECT c.chat_id, 
+               COALESCE(c.settings->>'before_class_enabled', 'true')::boolean as before_class_enabled
+        FROM bot_chats c 
+        WHERE c.is_active = true 
+        AND c.chat_type IN ('group', 'supergroup', 'GROUP', 'SUPERGROUP')
+        AND (c.settings->>'schedule_notifications' = 'true' OR c.settings->>'schedule_notifications' IS NULL)
+    """, nativeQuery = true)
+    List<Object[]> findAllActiveGroupsWithBeforeClass();
 }
