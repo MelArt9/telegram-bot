@@ -20,7 +20,7 @@ import java.util.Optional;
 public class BotChatService {
 
     private final BotChatRepository botChatRepository;
-    private final BotSettingsConfig settingsConfig; // <-- Добавляем конфиг
+    private final BotSettingsConfig settingsConfig;
 
     @Transactional
     public BotChat registerOrUpdateChat(Chat telegramChat, Long userId) {
@@ -148,5 +148,35 @@ public class BotChatService {
             log.info("{} напоминания перед парой для чата {}",
                     enable ? "Включены" : "Выключены", chatId);
         });
+    }
+
+    @Transactional
+    public void setBotTopicId(Long chatId, Integer topicId, String topicName) {
+        botChatRepository.findByChatId(chatId).ifPresent(chat -> {
+            Map<String, Object> settings = chat.getSettings();
+            if (settings == null) {
+                settings = new HashMap<>();
+            }
+
+            settings.put("bot_topic_id", topicId);
+            settings.put("bot_topic_name", topicName);
+            chat.setSettings(settings);
+            chat.setUpdatedAt(LocalDateTime.now());
+            botChatRepository.save(chat);
+
+            log.info("Установлена тема для бота: {} (ID: {}) в чате {}",
+                    topicName, topicId, chatId);
+        });
+    }
+
+    public Optional<Integer> getBotTopicId(Long chatId) {
+        return botChatRepository.findByChatId(chatId)
+                .map(chat -> {
+                    Map<String, Object> settings = chat.getSettings();
+                    if (settings != null && settings.containsKey("bot_topic_id")) {
+                        return (Integer) settings.get("bot_topic_id");
+                    }
+                    return null;
+                });
     }
 }

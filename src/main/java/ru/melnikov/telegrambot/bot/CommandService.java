@@ -5,11 +5,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.ParseMode;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
 import ru.melnikov.telegrambot.bot.context.CommandContext;
 import ru.melnikov.telegrambot.config.BotSettingsConfig;
 import ru.melnikov.telegrambot.model.BotChat;
 import ru.melnikov.telegrambot.model.Deadline;
-import ru.melnikov.telegrambot.model.Reminder;
 import ru.melnikov.telegrambot.model.Schedule;
 import ru.melnikov.telegrambot.service.*;
 
@@ -60,21 +60,17 @@ public class CommandService {
             case REMINDERS -> reminders(ctx);
             case SETTINGS -> settings(ctx);
             case ADMIN -> admin(ctx);
+            case SETTOPIC -> setTopic(ctx);
             default -> unknown(ctx);
         };
     }
 
     private SendMessage unknown(CommandContext ctx) {
-        return reply(ctx, "❌ *Неизвестная команда*\n\nВведите /help для списка команд");
+        return buildReply(ctx, "❌ *Неизвестная команда*\n\nВведите /help для списка команд");
     }
 
     private SendMessage reply(CommandContext ctx, String text) {
-        return SendMessage.builder()
-                .chatId(ctx.getChatId())
-                .text(text)
-                .parseMode(ParseMode.MARKDOWN)
-                .replyMarkup(keyboardFactory.defaultKeyboard())
-                .build();
+        return buildReply(ctx, text);
     }
 
     private SendMessage start(CommandContext ctx) {
@@ -86,22 +82,22 @@ public class CommandService {
         );
 
         String welcomeMessage = """
-                🎉 *Добро пожаловать в учебный помощник!* 🎉
-                
-                ✨ *Я помогу вам с:*
-                📅 Расписанием занятий
-                ⏰ Контролем дедлайнов
-                🔗 Полезными ресурсами
-                👥 Упоминанием групп
-                
-                💡 *Для начала работы используйте команды:*
-                /today – расписание на сегодня
-                /help – все команды помощника
-                
-                🚀 *Приятного использования!*
-                """;
+            🎉 *Добро пожаловать в учебный помощник!* 🎉
+            
+            ✨ *Я помогу вам с:*
+            📅 Расписанием занятий
+            ⏰ Контролем дедлайнов
+            🔗 Полезными ресурсами
+            👥 Упоминанием групп
+            
+            💡 *Для начала работы используйте команды:*
+            /today – расписание на сегодня
+            /help – все команды помощника
+            
+            🚀 *Приятного использования!*
+            """;
 
-        return reply(ctx, welcomeMessage);
+        return buildReply(ctx, welcomeMessage);
     }
 
     private SendMessage admin(CommandContext ctx) {
@@ -1209,6 +1205,53 @@ public class CommandService {
                 deadlineTime));
     }
 
+    private SendMessage setTopic(CommandContext ctx) {
+        // Проверяем права администратора
+        if (!isAdmin(ctx)) {
+            return reply(ctx, "❌ *Только администраторы могут настраивать тему бота*");
+        }
+
+        // Получаем ID темы из сообщения
+        Integer topicId = ctx.getUpdate().getMessage().getMessageThreadId();
+
+        if (topicId == null) {
+            return reply(ctx, """
+            ❌ *Сообщение не в теме!*
+            
+            💡 *Как установить тему для бота:*
+            1. Перейдите в тему, куда должен писать бот
+            2. Отправьте команду `/settopic` ИМЕННО В ЭТОЙ ТЕМЕ
+            3. Бот запомнит эту тему и будет писать только туда
+            """);
+        }
+
+        // Получаем название темы (если доступно)
+        String topicName = ctx.getUpdate().getMessage().getForumTopicCreated() != null
+                ? ctx.getUpdate().getMessage().getForumTopicCreated().getName()
+                : "Тема бота";
+
+        // Сохраняем ID темы
+        botChatService.setBotTopicId(ctx.getChatId(), topicId, topicName);
+
+        return SendMessage.builder()
+                .chatId(ctx.getChatId())
+                .messageThreadId(topicId) // Отвечаем В ТОЙ ЖЕ теме
+                .text(String.format("""
+                ✅ *Тема установлена!*
+                
+                🤖 Бот теперь будет отправлять все уведомления в эту тему:
+                *%s*
+                
+                📌 *ID темы:* `%d`
+                
+                ⚠️ *Важно:* Бот по-прежнему будет отвечать на команды там, 
+                где их отправляют. Но автоматические уведомления будут 
+                приходить только в эту тему.
+                """, topicName, topicId))
+                .parseMode(ParseMode.MARKDOWN)
+                .build();
+    }
+
     private SendMessage handleBeforeClassReminders(CommandContext ctx, Long chatId) {
         if (ctx.getArgs().length < 3) {
             int currentMinutes = settingsConfig.getReminders().getBeforeClass().getMinutes();
@@ -1542,5 +1585,28 @@ public class CommandService {
      */
     public String getCurrentWeekType() {
         return weekTypeService.getCurrentWeekType();
+    }
+
+    private SendMessage buildReply(CommandContext ctx, String text) {
+        return buildReply(ctx, text, keyboardFactory.defaultKeyboard());
+    }
+
+    private SendMessage buildReply(CommandContext ctx, String text, ReplyKeyboard markup) {
+        SendMessage.SendMessageBuilder builder = SendMessage.builder()
+                .chatId(ctx.getChatId())
+                .text(text)
+                .parseMode(ParseMode.MARKDOWN);
+
+        // ВАЖНО: Устанавливаем тот же messageThreadId, откуда пришла команда
+        if (ctx.getMessageThreadId() != null) {
+            builder.messageThreadId(ctx.getMessageThreadId());
+            log.debug("Отправляем ответ в тему ID: {}", ctx.getMessageThreadId());
+        }
+
+        if (markup != null) {
+            builder.replyMarkup(markup);
+        }
+
+        return builder.build();
     }
 }

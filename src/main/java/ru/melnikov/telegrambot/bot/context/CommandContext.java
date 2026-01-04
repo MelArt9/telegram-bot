@@ -16,4 +16,7 @@ public class CommandContext {
     public String arg(int index) {
         return (args != null && args.length > index) ? args[index] : null;
     }
+
+    @Builder.Default
+    private final Integer messageThreadId = null; // ID темы
 }

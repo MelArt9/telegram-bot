@@ -21,6 +21,9 @@ public class CommandRouter {
             String text = update.getMessage().getText();
             Long chatId = update.getMessage().getChatId();
 
+            // ВАЖНО: Получаем ID темы из сообщения
+            Integer messageThreadId = update.getMessage().getMessageThreadId();
+
             String commandText = mapButtonToCommand(text);
             CommandType type = CommandType.fromText(commandText);
 
@@ -30,6 +33,7 @@ public class CommandRouter {
                     .user(update.getMessage().getFrom())
                     .text(text)
                     .args(parseArgs(commandText))
+                    .messageThreadId(messageThreadId) // ← ПЕРЕДАЕМ ID ТЕМЫ!
                     .build();
 
             return commandService.handle(type, ctx);

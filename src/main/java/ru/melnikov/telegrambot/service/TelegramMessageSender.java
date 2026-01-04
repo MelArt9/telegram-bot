@@ -14,9 +14,9 @@ public class TelegramMessageSender {
 
     private final TelegramBot telegramBot;
 
-    public void sendMessage(Long chatId, String text) throws TelegramApiException {
+    public void sendMessage(Long topicId, String text) throws TelegramApiException {
         SendMessage message = SendMessage.builder()
-                .chatId(chatId.toString())
+                .chatId(topicId.toString())
                 .text(text)
                 .parseMode(org.telegram.telegrambots.meta.api.methods.ParseMode.MARKDOWN)
                 .build();
@@ -24,9 +24,9 @@ public class TelegramMessageSender {
         telegramBot.execute(message);
     }
 
-    public void sendMessageWithParseMode(Long chatId, String text, String parseMode) throws TelegramApiException {
+    public void sendMessageWithParseMode(Long topicId, String text, String parseMode) throws TelegramApiException {
         SendMessage message = SendMessage.builder()
-                .chatId(chatId.toString())
+                .chatId(topicId.toString())
                 .text(text)
                 .parseMode(parseMode)
                 .build();

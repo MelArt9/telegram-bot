@@ -492,9 +492,9 @@ public class ReminderMessageService {
     /**
      * Отправляет сообщение в чат
      */
-    private void sendMessageToChat(Long chatId, String text) throws TelegramApiException {
+    private void sendMessageToChat(Long topicId, String text) throws TelegramApiException {
         SendMessage message = SendMessage.builder()
-                .chatId(chatId.toString())
+                .chatId(topicId.toString())
                 .text(text)
                 .parseMode(ParseMode.MARKDOWN)
                 .build();

@@ -13,7 +13,8 @@ public enum CommandType {
     HELP("/help", "Помощь"),
     REMINDERS("/reminders", "Управление напоминаниями"),
     SETTINGS("/settings", "Настройки группы"),
-    ADMIN("/admin", "Админские права"),
+    ADMIN("/admin", "Проверка админских прав"),
+    SETTOPIC("/settopic", "Установить тему для бота"),
     UNKNOWN("", "");
 
     private final String command;
