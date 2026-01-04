@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.ParseMode;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.Chat;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
 import ru.melnikov.telegrambot.bot.context.CommandContext;
 import ru.melnikov.telegrambot.config.BotSettingsConfig;
@@ -1588,7 +1589,7 @@ public class CommandService {
     }
 
     private SendMessage buildReply(CommandContext ctx, String text) {
-        return buildReply(ctx, text, keyboardFactory.defaultKeyboard());
+        return buildReply(ctx, text, getKeyboardForChat(ctx));
     }
 
     private SendMessage buildReply(CommandContext ctx, String text, ReplyKeyboard markup) {
@@ -1603,10 +1604,32 @@ public class CommandService {
             log.debug("Отправляем ответ в тему ID: {}", ctx.getMessageThreadId());
         }
 
+        // Добавляем клавиатуру только если она есть
         if (markup != null) {
             builder.replyMarkup(markup);
         }
 
         return builder.build();
+    }
+
+    // Метод для определения клавиатуры в зависимости от типа чата
+    private ReplyKeyboard getKeyboardForChat(CommandContext ctx) {
+        Chat chat = ctx.getUpdate().getMessage().getChat();
+
+        if (isGroupChat(chat)) {
+            // В чатах показываем минимальную клавиатуру или убираем её совсем
+            return keyboardFactory.minimalKeyboard(); // или null
+        } else {
+            // В личных сообщениях - полная клавиатура
+            return keyboardFactory.defaultKeyboard();
+        }
+    }
+
+    // Метод для определения типа чата (дублируем из CommandRouter или выносим в утилиты)
+    private boolean isGroupChat(Chat chat) {
+        if (chat == null) return false;
+        String type = chat.getType();
+        return "group".equals(type) || "supergroup".equals(type) ||
+                "GROUP".equals(type) || "SUPERGROUP".equals(type);
     }
 }

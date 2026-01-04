@@ -56,4 +56,25 @@ public class KeyboardFactory {
         markup.setOneTimeKeyboard(false);
         return markup;
     }
+
+    // Минимальная клавиатура для чатов (только основные команды)
+    public ReplyKeyboardMarkup minimalKeyboard() {
+        // Вариант 1: Показываем только /help
+        KeyboardRow row = new KeyboardRow(List.of(
+                KeyboardButton.builder().text("/help").build(),
+                KeyboardButton.builder().text("/today").build()
+        ));
+
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row));
+        markup.setResizeKeyboard(true);
+        markup.setSelective(true);
+        markup.setOneTimeKeyboard(false);
+        return markup;
+
+        // Вариант 2: Убираем клавиатуру совсем
+        // return null;
+
+        // Вариант 3: Используем ReplyKeyboardRemove для скрытия клавиатуры
+        // return new ReplyKeyboardRemove(true);
+    }
 }

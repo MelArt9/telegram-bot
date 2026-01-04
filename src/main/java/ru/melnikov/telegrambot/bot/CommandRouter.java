@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.Chat;
 import ru.melnikov.telegrambot.bot.context.CommandContext;
 
 @Slf4j
@@ -20,6 +21,17 @@ public class CommandRouter {
         if (update.hasMessage() && update.getMessage().hasText()) {
             String text = update.getMessage().getText();
             Long chatId = update.getMessage().getChatId();
+            Chat chat = update.getMessage().getChat();
+
+            // Определяем тип чата
+            boolean isGroupChat = isGroupChat(chat);
+
+            // ВАЖНОЕ ИЗМЕНЕНИЕ: В чатах реагируем только на команды с /
+            if (isGroupChat && !text.startsWith("/")) {
+                log.info("Игнорируем некомандное сообщение в чате {} (тип: {}): '{}'",
+                        chatId, chat.getType(), text);
+                return null;
+            }
 
             // ВАЖНО: Получаем ID темы из сообщения
             Integer messageThreadId = update.getMessage().getMessageThreadId();
@@ -42,7 +54,15 @@ public class CommandRouter {
         return null;
     }
 
-    // В методе mapButtonToCommand добавляем:
+    // Метод для определения, является ли чат группой
+    private boolean isGroupChat(Chat chat) {
+        if (chat == null) return false;
+        String type = chat.getType();
+        return "group".equals(type) || "supergroup".equals(type) ||
+                "GROUP".equals(type) || "SUPERGROUP".equals(type);
+    }
+
+    // В методе mapButtonToCommand оставляем как было
     private String mapButtonToCommand(String text) {
         return switch (text) {
             case "📅 Сегодня" -> "/today";
@@ -51,7 +71,7 @@ public class CommandRouter {
             case "👥 Упомянуть всех" -> "/tag all";
             case "🔔 Напоминания" -> "/reminders";
             case "⚙️ Настройки" -> "/settings";
-            case "\uD83D\uDEE1\uFE0F Администратор" -> "/admin";
+            case "🛡️ Администратор" -> "/admin";
             case "❓ Помощь" -> "/help";
             default -> text;
         };
