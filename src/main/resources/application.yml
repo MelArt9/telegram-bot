@@ -5,6 +5,9 @@ spring:
   application:
     name: telegram-bot
 
+  main:
+    allow-circular-references: false
+
   datasource:
     url: jdbc:postgresql://localhost:5432/MAGA
     username: postgres
@@ -13,12 +16,12 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: true
-    open-in-view: false
     properties:
       hibernate:
         format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
 
   thymeleaf:
     prefix: classpath:/templates/
@@ -35,13 +38,41 @@ logging:
     root: INFO
     org.springframework.web: INFO
     org.hibernate.SQL: DEBUG
+    ru.melnikov.telegrambot: DEBUG
 
 telegram:
   bot:
-    enabled: true
     token: 8512371848:AAEqIbcRIEa7mVnCw_mGpU9DyQPyqnYwB0A
     username: pisms_guardian_bot
-    group-settings:
-      welcome-message: true  # Приветственное сообщение при добавлении
-      auto-respond: true     # Автоответ на команды
-      mention-support: true  # Поддержка упоминаний
+
+  admins:
+    usernames:
+      - "mi1ord"  # Ваш username без @
+
+  reminders:
+    # Настройки расписания
+    schedule:
+      enabled: true
+      time: "08:00"        # Время отправки ежедневного расписания
+      days: "1111100"      # Пн-Пт (1=включено, 0=выключено)
+
+    # Настройки дедлайнов
+    deadlines:
+      enabled: true
+      time: "10:00"        # Время отправки еженедельных дедлайнов
+      days: "0101010"      # Вт, Чт, Пт
+
+    # Настройки напоминаний перед парой
+    before-class:
+      enabled: true
+      minutes: 10          # За сколько минут напоминать о начале пары
+
+    # Настройки определения типа недели (odd/even)
+    week-type:
+      reference-date: "2025-12-29"    # Дата отсчета
+      reference-week-type: "even"     # Какая неделя была в reference-date ("even" или "odd")
+
+    # Настройки планировщика
+    scheduler:
+      enabled: true
+      check-interval: "0 * * * * *"  # Проверка каждую минуту

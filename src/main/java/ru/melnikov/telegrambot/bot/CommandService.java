@@ -1,14 +1,22 @@
 package ru.melnikov.telegrambot.bot;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.ParseMode;
+import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatAdministrators;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.Chat;
+import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMember;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.melnikov.telegrambot.bot.context.CommandContext;
+import ru.melnikov.telegrambot.config.AdminConfig;
+import ru.melnikov.telegrambot.config.ReminderConfig;
+import ru.melnikov.telegrambot.model.BotChat;
 import ru.melnikov.telegrambot.model.Deadline;
+import ru.melnikov.telegrambot.model.Reminder;
 import ru.melnikov.telegrambot.model.Schedule;
 import ru.melnikov.telegrambot.service.*;
-import ru.melnikov.telegrambot.util.TelegramUtils;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -21,6 +29,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class CommandService {
 
     private final UserService userService;
@@ -29,6 +38,11 @@ public class CommandService {
     private final LinkService linkService;
     private final GroupService groupService;
     private final KeyboardFactory keyboardFactory;
+    private final BotChatService botChatService;
+    private final PerformanceMonitor performanceMonitor;
+    private final AdminCheckService adminCheckService;
+    private final AdminConfig adminConfig;
+    private final ReminderConfig reminderConfig;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy");
@@ -36,10 +50,12 @@ public class CommandService {
     private static final Locale RUSSIAN_LOCALE = new Locale("ru");
 
     // Дата начала отсчета для определения четности недели
-    // Это должна быть дата, когда неделя была четной (или нечетной)
-    private static final LocalDate REFERENCE_DATE_EVEN_WEEK = LocalDate.of(2024, 9, 2); // Пример: 2 сентября 2024 была четная неделя
+    private static final LocalDate REFERENCE_DATE_EVEN_WEEK = LocalDate.of(2025, 12, 29);
 
     public SendMessage handle(CommandType type, CommandContext ctx) {
+        // Автоматическое логирование через аспект
+        performanceMonitor.incrementCommand(type.name());
+
         return switch (type) {
             case START -> start(ctx);
             case TODAY -> today(ctx);
@@ -49,6 +65,9 @@ public class CommandService {
             case LINKS -> links(ctx);
             case TAG -> tag(ctx);
             case HELP -> help(ctx);
+            case REMINDERS -> reminders(ctx);
+            case SETTINGS -> settings(ctx);
+            case ADMIN -> admin(ctx); // Новая команда
             default -> unknown(ctx);
         };
     }
@@ -91,6 +110,56 @@ public class CommandService {
                 """;
 
         return reply(ctx, welcomeMessage);
+    }
+
+    private SendMessage admin(CommandContext ctx) {
+        var user = ctx.getUser();
+        String username = user.getUserName();
+        Long userId = user.getId();
+
+        boolean isAdmin = adminCheckService.isAdmin(username, userId);
+
+        if (isAdmin) {
+            return reply(ctx, String.format("""
+            👑 *СТАТУС АДМИНИСТРАТОРА*
+            
+            ✅ *Вы являетесь администратором бота!*
+            
+            📋 *Данные:*
+            • Username: @%s
+            • User ID: %d
+            • Статус: ✅ АДМИНИСТРАТОР
+            
+            🔧 *Доступные команды:*
+            • /reminders – управление напоминаниями
+            • /settings – настройки группы
+            • /tag all – упомянуть всех участников
+            
+            ⚠️ *Будьте осторожны с настройками!*
+            """,
+                    username != null ? username : "unknown",
+                    userId));
+        } else {
+            return reply(ctx, String.format("""
+            👑 *СТАТУС АДМИНИСТРАТОРА*
+            
+            ❌ *Вы НЕ являетесь администратором бота*
+            
+            📋 *Данные:*
+            • Username: @%s
+            • User ID: %d
+            • Статус: ❌ НЕ АДМИНИСТРАТОР
+            
+            💡 *Только администраторы могут:*
+            • Настраивать напоминания (/reminders)
+            • Изменять настройки группы (/settings)
+            • Упоминать всех участников (/tag all)
+            
+            🔒 *Обратитесь к владельцу бота для получения прав*
+            """,
+                    username != null ? username : "unknown",
+                    userId));
+        }
     }
 
     private SendMessage today(CommandContext ctx) {
@@ -697,19 +766,37 @@ public class CommandService {
     private SendMessage tag(CommandContext ctx) {
         if (ctx.getArgs().length < 2) {
             return reply(ctx, """
-                👥 *УПОМИНАНИЕ ГРУППЫ* 👥
-                
-                🔧 *Формат:* `/tag [название_группы]`
-                
-                📋 *Доступные группы:*
-                • all – все пользователи
-                • starosta – староста
-                
-                💡 *Пример:* `/tag all` – упомянуть всех
-                """);
+            👥 *УПОМИНАНИЕ ГРУППЫ* 👥
+            
+            🔧 *Формат:* `/tag [название_группы]`
+            
+            📋 *Доступные группы:*
+            • all – все пользователи
+            • starosta – староста
+            
+            💡 *Пример:* `/tag all` – упомянуть всех
+            """);
         }
 
-        String groupName = ctx.getArgs()[1].toLowerCase();
+        String groupName = ctx.arg(1).toLowerCase();
+
+        // Если это упоминание "all", проверяем права администратора
+        if (groupName.equals("all")) {
+            if (!isAdmin(ctx)) {
+                String username = ctx.getUser().getUserName();
+                return reply(ctx, String.format("""
+                ⚠️ *Доступ запрещён*
+                
+                ❌ *Упоминание всех участников могут использовать только администраторы бота*
+                
+                👑 *Текущий пользователь:* @%s
+                *Статус:* ❌ НЕ АДМИНИСТРАТОР
+                
+                💡 *Обратитесь к администратору бота для упоминания участников*
+                """,
+                        username != null ? username : "unknown"));
+            }
+        }
 
         return groupService.findByName(groupName)
                 .map(group -> {
@@ -833,6 +920,339 @@ public class CommandService {
             """);
     }
 
+    private SendMessage reminders(CommandContext ctx) {
+        // 1. Сначала проверяем права администратора
+        if (!isAdmin(ctx)) {
+            String username = ctx.getUser().getUserName();
+            log.warn("Попытка использования /reminders не-админом: @{}", username);
+
+            return reply(ctx, String.format("""
+                ⚠️ *Доступ запрещён*
+                
+                ❌ *Команда `/reminders` доступна только администраторам бота*
+                
+                👑 *Текущий пользователь:* @%s
+                *Статус:* ❌ НЕ АДМИНИСТРАТОР
+                
+                💡 *Обратитесь к администратору бота для настройки напоминаний*
+                
+                ✅ *Вы можете использовать:*
+                • `/today` – расписание на сегодня
+                • `/day [1-7]` – расписание по дням
+                • `/deadlines` – дедлайны заданий
+                • `/help` – все команды
+                """,
+                    username != null ? username : "unknown"));
+        }
+
+        // 2. Проверяем, что это группа (если нужно)
+        if (!ctx.getUpdate().getMessage().isGroupMessage() &&
+                !ctx.getUpdate().getMessage().isSuperGroupMessage()) {
+            return reply(ctx, """
+                ❌ *Эта команда доступна только в группах*
+                
+                💡 *Для личного использования бота пишите команды в личные сообщения*
+                """);
+        }
+
+        // 3. Продолжаем обычную логику (только для администраторов)
+        Long chatId = ctx.getChatId();
+
+        if (ctx.getArgs().length < 2) {
+            return showRemindersStatus(ctx, chatId);
+        }
+
+        String subCommand = ctx.arg(1).toLowerCase();
+
+        return switch (subCommand) {
+            case "schedule" -> handleScheduleReminders(ctx, chatId);
+            case "deadlines" -> handleDeadlineReminders(ctx, chatId);
+            case "before" -> handleBeforeClassReminders(ctx, chatId);
+            case "list" -> listReminders(ctx, chatId);
+            default -> showRemindersHelp(ctx);
+        };
+    }
+
+    private SendMessage showRemindersStatus(CommandContext ctx, Long chatId) {
+        Optional<BotChat> chatOpt = botChatService.findByChatId(chatId);
+
+        if (chatOpt.isEmpty()) {
+            return reply(ctx, """
+                ❌ *Чат не зарегистрирован*
+                
+                💡 *Бот должен быть добавлен в группу как администратор*
+                """);
+        }
+
+        BotChat chat = chatOpt.get();
+        Map<String, Object> settings = chat.getSettings();
+
+        boolean scheduleEnabled = (boolean) settings.getOrDefault("schedule_notifications", true);
+        boolean deadlineEnabled = (boolean) settings.getOrDefault("deadline_notifications", true);
+        int minutesBefore = (int) settings.getOrDefault("reminder_before_class", 15);
+
+        // Упрощаем - получаем напоминания через BotChatService
+        List<Reminder> reminders = Collections.emptyList(); // Можно сделать через BotChatService
+
+        StringBuilder response = new StringBuilder();
+        response.append("🔔 *ТЕКУЩИЕ НАСТРОЙКИ НАПОМИНАНИЙ*\n\n");
+
+        response.append(String.format("""
+            📅 *Расписание:*
+            • Ежедневно в 08:00 – %s
+            • За %d мин. до пары – %s
+            
+            ⏰ *Дедлайны:*
+            • Еженедельно (ВТ, ЧТ, СБ) в 10:00 – %s
+            """,
+                scheduleEnabled ? "✅ ВКЛ" : "❌ ВЫКЛ",
+                minutesBefore,
+                scheduleEnabled ? "✅ ВКЛ" : "❌ ВЫКЛ",
+                deadlineEnabled ? "✅ ВКЛ" : "❌ ВЫКЛ"));
+
+        response.append("\n📋 *Активные напоминания:*\n");
+        if (reminders.isEmpty()) {
+            response.append("   📭 *Напоминаний нет*\n");
+        } else {
+            for (Reminder reminder : reminders) {
+                String type = switch (reminder.getReminderType()) {
+                    case "SCHEDULE_TODAY" -> "📅 Расписание";
+                    case "DEADLINE_WEEKLY" -> "⏰ Дедлайны";
+                    default -> "🔔 Напоминание";
+                };
+                response.append(String.format("   %s в %s – %s\n",
+                        type,
+                        reminder.getScheduleTime(),
+                        reminder.getIsActive() ? "✅" : "⏸️"));
+            }
+        }
+
+        response.append("""
+            
+            🔧 *Команды управления:*
+            • /reminders schedule on/off – уведомления о расписании
+            • /reminders deadlines on/off – уведомления о дедлайнах
+            • /reminders before [минуты] – напоминание перед парой
+            • /reminders list – детальный список
+            
+            ⚠️ *Только для администраторов группы*
+            """);
+
+        return reply(ctx, response.toString());
+    }
+
+    private SendMessage handleScheduleReminders(CommandContext ctx, Long chatId) {
+        if (ctx.getArgs().length < 3) {
+            return reply(ctx, """
+                ❌ *Недостаточно аргументов*
+                
+                💡 *Использование:*
+                • `/reminders schedule on` – включить
+                • `/reminders schedule off` – выключить
+                """);
+        }
+
+        String action = ctx.arg(2).toLowerCase();
+        boolean enable = action.equals("on");
+
+        botChatService.toggleScheduleNotifications(chatId, enable);
+
+        return reply(ctx, String.format("""
+            %s *Уведомления о расписании %s*
+            
+            📅 *Бот будет:*
+            • Ежедневно в 08:00 отправлять расписание
+            • За N минут до каждой пары напоминать о начале
+            
+            💡 *Используйте `/reminders before [минуты]` для изменения времени*
+            """,
+                enable ? "✅" : "⏸️",
+                enable ? "ВКЛЮЧЕНЫ" : "ВЫКЛЮЧЕНЫ"));
+    }
+
+    private SendMessage handleDeadlineReminders(CommandContext ctx, Long chatId) {
+        if (ctx.getArgs().length < 3) {
+            return reply(ctx, """
+                ❌ *Недостаточно аргументов*
+                
+                💡 *Использование:*
+                • `/reminders deadlines on` – включить
+                • `/reminders deadlines off` – выключить
+                """);
+        }
+
+        String action = ctx.arg(2).toLowerCase();
+        boolean enable = action.equals("on");
+
+        botChatService.toggleDeadlineNotifications(chatId, enable);
+
+        return reply(ctx, String.format("""
+            %s *Уведомления о дедлайнах %s*
+            
+            ⏰ *Бот будет:*
+            • По Вт, Чт, Пт в 10:00 отправлять дедлайны на неделю
+            • Показывать актуальные задания и сроки
+            
+            💡 *Дедлайны берутся из общей базы данных*
+            """,
+                enable ? "✅" : "⏸️",
+                enable ? "ВКЛЮЧЕНЫ" : "ВЫКЛЮЧЕНЫ"));
+    }
+
+    private SendMessage handleBeforeClassReminders(CommandContext ctx, Long chatId) {
+        if (ctx.getArgs().length < 3) {
+            return reply(ctx, """
+                ❌ *Недостаточно аргументов*
+                
+                💡 *Использование:*
+                • `/reminders before 15` – за 15 минут до пары
+                • `/reminders before 30` – за 30 минут до пары
+                
+                ⚠️ *Минимальное значение: 5 минут*
+                *Максимальное значение: 60 минут*
+                """);
+        }
+
+        try {
+            int minutes = Integer.parseInt(ctx.arg(2));
+
+            if (minutes < 5 || minutes > 60) {
+                return reply(ctx, "❌ *Некорректное значение*\n\nВведите число от 5 до 60 минут");
+            }
+
+            botChatService.updateReminderBeforeClass(chatId, minutes);
+
+            return reply(ctx, String.format("""
+                ✅ *Напоминание перед парой обновлено!*
+                
+                ⏰ *Теперь бот будет напоминать за %d минут до начала пары*
+                
+                💡 *Напоминание включает:*
+                • Название предмета
+                • Преподавателя
+                • Место проведения
+                • Время начала
+                """, minutes));
+        } catch (NumberFormatException e) {
+            return reply(ctx, "❌ *Ошибка:* Введите число (например: 15)");
+        }
+    }
+
+    private SendMessage listReminders(CommandContext ctx, Long chatId) {
+        // Упрощаем - возвращаем сообщение, что список недоступен
+        return reply(ctx, """
+            📋 *СПИСОК НАПОМИНАНИЙ*
+            
+            ⚠️ *Функция временно недоступна*
+            
+            💡 *Используйте команды:*
+            • `/reminders schedule on/off` – управление расписанием
+            • `/reminders deadlines on/off` – управление дедлайнами
+            • `/reminders before [минуты]` – настройка времени
+            
+            🔧 *Напоминания работают автоматически*
+            """);
+    }
+
+    private SendMessage settings(CommandContext ctx) {
+        // 1. Проверяем права администратора
+        if (!isAdmin(ctx)) {
+            String username = ctx.getUser().getUserName();
+            return reply(ctx, String.format("""
+                ⚠️ *Доступ запрещён*
+                
+                ❌ *Команда `/settings` доступна только администраторам бота*
+                
+                👑 *Текущий пользователь:* @%s
+                *Статус:* ❌ НЕ АДМИНИСТРАТОР
+                """,
+                    username != null ? username : "unknown"));
+        }
+
+        // 2. Проверяем, что это группа
+        if (!ctx.getUpdate().getMessage().isGroupMessage() &&
+                !ctx.getUpdate().getMessage().isSuperGroupMessage()) {
+            return reply(ctx, """
+                ❌ *Эта команда доступна только в группах*
+                """);
+        }
+
+        // 3. Продолжаем обычную логику
+        Long chatId = ctx.getChatId();
+        Optional<BotChat> chatOpt = botChatService.findByChatId(chatId);
+
+        if (chatOpt.isEmpty()) {
+            return reply(ctx, """
+                ❌ *Чат не зарегистрирован*
+                
+                💡 *Бот должен быть добавлен в группу как администратор*
+                """);
+        }
+
+        BotChat chat = chatOpt.get();
+        Map<String, Object> settings = chat.getSettings();
+
+        boolean welcomeEnabled = (boolean) settings.getOrDefault("welcome_message", true);
+        boolean mentionsEnabled = (boolean) settings.getOrDefault("mention_all_enabled", true);
+
+        return reply(ctx, String.format("""
+            ⚙️ *НАСТРОЙКИ ГРУППЫ «%s»*
+            
+            👋 *Приветственное сообщение:* %s
+            👥 *Упоминание всех:* %s
+            
+            🔧 *Команды:*
+            • /reminders – управление напоминаниями
+            • /tag all – упомянуть всех участников
+            
+            💡 *Напоминания работают автоматически на основе расписания и дедлайнов*
+            """,
+                chat.getTitle() != null ? chat.getTitle() : "Группа",
+                welcomeEnabled ? "✅ ВКЛ" : "❌ ВЫКЛ",
+                mentionsEnabled ? "✅ ВКЛ" : "❌ ВЫКЛ"));
+    }
+
+    // Вспомогательный метод для показа справки по reminders
+    private SendMessage showRemindersHelp(CommandContext ctx) {
+        return reply(ctx, """
+            🔔 *СПРАВКА ПО КОМАНДАМ НАПОМИНАНИЙ*
+            
+            📋 *Основные команды:*
+            • `/reminders` – текущие настройки
+            • `/reminders schedule on/off` – уведомления о расписании
+            • `/reminders deadlines on/off` – уведомления о дедлайнах
+            • `/reminders before [минуты]` – напоминание перед парой
+            • `/reminders list` – список всех напоминаний
+            
+            ⏰ *Что делает бот:*
+            • *Ежедневно в 08:00* – отправляет расписание на день
+            • *За N минут до пары* – напоминает о начале занятия
+            • *По Вт, Чт, Пт в 10:00* – отправляет дедлайны на неделю
+            
+            ⚠️ *Только для администраторов группы*
+            💡 *Все данные берутся из учебной базы*
+            """);
+    }
+
+    /**
+     * Проверяет, является ли пользователь администратором
+     */
+    private boolean isAdmin(CommandContext ctx) {
+        try {
+            var user = ctx.getUser();
+            if (user == null) {
+                return false;
+            }
+
+            String username = user.getUserName();
+            return adminConfig.isAdminByUsername(username);
+
+        } catch (Exception e) {
+            log.error("Ошибка проверки администратора: {}", e.getMessage());
+            return false;
+        }
+    }
+
     // ====== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ФОРМАТИРОВАНИЯ ======
 
     private String formatScheduleList(List<Schedule> scheduleList, String dayName, String context, String weekType) {
@@ -915,23 +1335,51 @@ public class CommandService {
                 .count();
     }
 
+    // Вспомогательный метод для форматирования дней недели
+    private String formatDaysOfWeek(String days) {
+        if (days == null || days.length() != 7) return "Все дни";
+
+        String[] dayNames = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"};
+        StringBuilder result = new StringBuilder();
+
+        for (int i = 0; i < 7; i++) {
+            if (days.charAt(i) == '1') {
+                result.append(dayNames[i]).append(", ");
+            }
+        }
+
+        if (result.length() > 0) {
+            result.setLength(result.length() - 2); // Убираем последнюю запятую
+        } else {
+            result.append("Никогда");
+        }
+
+        return result.toString();
+    }
+
     /**
      * Определяет текущий тип недели (четная/нечетная)
      * на основе установленной даты отсчета
      *
      * @return "odd" - нечетная, "even" - четная
      */
-    private String getCurrentWeekType() {
+    public String getCurrentWeekType() {
         LocalDate today = LocalDate.now();
+        ReminderConfig.WeekTypeConfig weekTypeConfig = reminderConfig.getWeekType();
 
-        // Определяем разницу в неделях между сегодняшней датой и эталонной
+        LocalDate referenceDate = weekTypeConfig.getReferenceDateAsLocalDate();
+        String referenceWeekType = weekTypeConfig.getReferenceWeekType();
+
+        // Определяем разницу в неделях
         long weeksBetween = java.time.temporal.ChronoUnit.WEEKS.between(
-                REFERENCE_DATE_EVEN_WEEK.with(DayOfWeek.MONDAY),
+                referenceDate.with(DayOfWeek.MONDAY),
                 today.with(DayOfWeek.MONDAY)
         );
 
-        // Если разница четная - текущая неделя четная (even)
-        // Если разница нечетная - текущая неделя нечетная (odd)
-        return weeksBetween % 2 == 0 ? "even" : "odd";
+        // Логика определения типа текущей недели
+        boolean isEvenWeek = (referenceWeekType.equals("even") && weeksBetween % 2 == 0) ||
+                (referenceWeekType.equals("odd") && weeksBetween % 2 != 0);
+
+        return isEvenWeek ? "even" : "odd";
     }
 }

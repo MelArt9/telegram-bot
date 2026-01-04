@@ -22,6 +22,31 @@ public class KeyboardFactory {
         ));
 
         KeyboardRow row3 = new KeyboardRow(List.of(
+                KeyboardButton.builder().text("🔔 Напоминания").build(),
+                KeyboardButton.builder().text("❓ Помощь").build()
+        ));
+
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3));
+        markup.setResizeKeyboard(true);
+        markup.setSelective(true);
+        markup.setOneTimeKeyboard(false);
+        return markup;
+    }
+
+    // Дополнительная клавиатура для групп
+    public ReplyKeyboardMarkup groupKeyboard() {
+        KeyboardRow row1 = new KeyboardRow(List.of(
+                KeyboardButton.builder().text("📅 Сегодня").build(),
+                KeyboardButton.builder().text("⏰ Дедлайны").build()
+        ));
+
+        KeyboardRow row2 = new KeyboardRow(List.of(
+                KeyboardButton.builder().text("🔔 Напоминания").build(),
+                KeyboardButton.builder().text("⚙️ Настройки").build()
+        ));
+
+        KeyboardRow row3 = new KeyboardRow(List.of(
+                KeyboardButton.builder().text("👥 Упомянуть всех").build(),
                 KeyboardButton.builder().text("❓ Помощь").build()
         ));
 

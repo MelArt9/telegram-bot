@@ -38,12 +38,16 @@ public class CommandRouter {
         return null;
     }
 
+    // В методе mapButtonToCommand добавляем:
     private String mapButtonToCommand(String text) {
         return switch (text) {
             case "📅 Сегодня" -> "/today";
             case "⏰ Дедлайны" -> "/deadlines";
             case "🔗 Ссылки" -> "/links";
             case "👥 Упомянуть всех" -> "/tag all";
+            case "🔔 Напоминания" -> "/reminders";
+            case "⚙️ Настройки" -> "/settings";
+            case "\uD83D\uDEE1\uFE0F Администратор" -> "/admin";
             case "❓ Помощь" -> "/help";
             default -> text;
         };
