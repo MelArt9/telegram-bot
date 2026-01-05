@@ -1,11 +1,10 @@
-// Файл: /src/main/java/ru/melnikov/telegrambot/service/ReminderMessageService.java
 package ru.melnikov.telegrambot.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.telegram.telegrambots.meta.api.methods.ParseMode;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardRemove;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.melnikov.telegrambot.bot.TelegramBot;
 import ru.melnikov.telegrambot.config.BotSettingsConfig;
@@ -15,17 +14,13 @@ import ru.melnikov.telegrambot.model.Schedule;
 import ru.melnikov.telegrambot.repository.BotChatRepository;
 import ru.melnikov.telegrambot.repository.DeadlineRepository;
 import ru.melnikov.telegrambot.repository.ScheduleRepository;
-import ru.melnikov.telegrambot.util.DeadlineFormatter;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -39,106 +34,424 @@ public class ReminderMessageService {
     private final DeadlineRepository deadlineRepository;
     private final WeekTypeService weekTypeService;
     private final BotSettingsConfig settingsConfig;
+    private final BotChatService botChatService;
+    private final ScheduleService scheduleService;
+    private final DeadlineService deadlineService;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+    private static final DateTimeFormatter TIME_FORMATTER_LONG = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final Locale RUSSIAN_LOCALE = new Locale("ru");
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy");
+    private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
+
+    // ====== ЕДИНЫЙ МЕТОД ГЕНЕРАЦИИ НАПОМИНАНИЯ О ПАРЕ ======
+
+    /**
+     * Единый метод для генерации красивого напоминания о паре
+     */
+    public String generateClassReminderMessage(Schedule schedule, int minutesBefore) {
+        try {
+            LocalDate today = LocalDate.now();
+
+            // Получаем информацию о дне недели
+            String dayName = today.getDayOfWeek().getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE);
+            dayName = dayName.substring(0, 1).toUpperCase() + dayName.substring(1);
+
+            // Получаем текущий тип недели
+            String currentWeekType = weekTypeService.getCurrentWeekType();
+            String weekTypeEmoji = weekTypeService.getWeekTypeEmoji(currentWeekType);
+            String weekTypeDisplay = weekTypeService.getWeekTypeDisplayName(currentWeekType);
+
+            // Получаем информацию о типе недели для этой пары
+            String scheduleWeekType = schedule.getWeekType() != null ? schedule.getWeekType() : "all";
+            String pairWeekTypeEmoji = getWeekTypeEmoji(scheduleWeekType);
+            String pairWeekTypeText = getWeekTypeText(scheduleWeekType);
+
+            // Форматируем время пары
+            String timeRange = String.format("%s-%s",
+                    schedule.getTimeStart().format(TIME_FORMATTER),
+                    schedule.getTimeEnd().format(TIME_FORMATTER));
+
+            // Форматируем время до начала
+            String timeLeft = formatTimeLeft(minutesBefore);
+
+            // Получаем информацию о преподавателе
+            String teacherInfo = formatTeacherInfo(schedule.getTeacher());
+
+            // Получаем информацию о местоположении
+            String locationInfo = formatLocationInfo(schedule);
+
+            // Генерируем эмодзи в зависимости от оставшегося времени
+            String timeEmoji = getTimeEmoji(minutesBefore);
+
+            // Определяем уровень срочности
+            String urgencyLevel = getUrgencyLevel(minutesBefore);
+
+            // Генерируем подсказку в зависимости от времени
+            String tip = getClassReminderTip(minutesBefore);
+
+            // Формируем сообщение
+            return String.format("""
+                %s *НАПОМИНАНИЕ О ПРЕДСТОЯЩЕЙ ПАРЕ* %s
+                
+                📅 *%s* | %s %s
+                
+                ⏰ *До начала осталось:* %s
+                %s
+                
+                %s *%s* (%s)
+                👨‍🏫 *Преподаватель:* %s
+                %s
+                🕐 *Время:* %s
+                
+                %s
+                
+                🚀 *Удачной пары!*
+                """,
+                    timeEmoji, urgencyLevel,
+                    dayName, weekTypeEmoji, weekTypeDisplay,
+                    timeLeft,
+                    tip,
+                    pairWeekTypeEmoji, schedule.getSubject(), pairWeekTypeText,
+                    teacherInfo,
+                    locationInfo,
+                    timeRange,
+                    getClassPreparationTips(schedule.getSubject()));
+
+        } catch (Exception e) {
+            log.error("❌ Ошибка генерации напоминания о паре: {}", e.getMessage(), e);
+            return String.format("""
+                ⏰ *НАПОМИНАНИЕ О ПАРЕ*
+                
+                Через %d минут начинается пара:
+                📖 *%s*
+                🕐 %s-%s
+                """,
+                    minutesBefore,
+                    schedule.getSubject(),
+                    schedule.getTimeStart().format(TIME_FORMATTER),
+                    schedule.getTimeEnd().format(TIME_FORMATTER));
+        }
+    }
+
+    // ====== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ФОРМАТИРОВАНИЯ ======
+
+    /**
+     * Форматирует оставшееся время
+     */
+    private String formatTimeLeft(int minutes) {
+        if (minutes >= 60) {
+            int hours = minutes / 60;
+            int remainingMinutes = minutes % 60;
+            if (remainingMinutes == 0) {
+                return String.format("%d час%s", hours, hours > 1 ? "а" : "");
+            } else {
+                return String.format("%d час%s %d мин.", hours, hours > 1 ? "а" : "", remainingMinutes);
+            }
+        } else if (minutes >= 30) {
+            return String.format("%d минут", minutes);
+        } else if (minutes >= 15) {
+            return String.format("%d минут (еще есть время!)", minutes);
+        } else if (minutes >= 5) {
+            return String.format("%d минут (пора собираться!)", minutes);
+        } else {
+            return String.format("%d минут (срочно!)", minutes);
+        }
+    }
+
+    /**
+     * Форматирует информацию о преподавателе
+     */
+    private String formatTeacherInfo(String teacher) {
+        if (teacher == null || teacher.isBlank()) {
+            return "Преподаватель не указан";
+        }
+        return teacher;
+    }
+
+    /**
+     * Форматирует информацию о местоположении
+     */
+    private String formatLocationInfo(Schedule schedule) {
+        if (schedule.getIsOnline() != null && schedule.getIsOnline()) {
+            return "💻 *Онлайн*";
+        } else if (schedule.getLocation() != null && !schedule.getLocation().isBlank()) {
+            return String.format("📍 *%s*", schedule.getLocation());
+        } else {
+            return "📍 Место не указано";
+        }
+    }
+
+    /**
+     * Возвращает текст типа недели
+     */
+    private String getWeekTypeText(String weekType) {
+        return switch (weekType) {
+            case "odd" -> "числитель";
+            case "even" -> "знаменатель";
+            default -> "обе недели";
+        };
+    }
+
+    /**
+     * Возвращает эмодзи в зависимости от оставшегося времени
+     */
+    private String getTimeEmoji(int minutes) {
+        if (minutes >= 60) return "🕐";
+        if (minutes >= 30) return "⏰";
+        if (minutes >= 15) return "⚠️";
+        if (minutes >= 5) return "🔔";
+        return "🚨";
+    }
+
+    /**
+     * Возвращает уровень срочности
+     */
+    private String getUrgencyLevel(int minutes) {
+        if (minutes >= 60) return "(ЗАРАНЕЕ)";
+        if (minutes >= 30) return "(ВОВРЕМЯ)";
+        if (minutes >= 15) return "(СОВСЕМ СКОРО)";
+        if (minutes >= 5) return "(СРОЧНО)";
+        return "(ОЧЕНЬ СРОЧНО!)";
+    }
+
+    /**
+     * Возвращает подсказку в зависимости от времени
+     */
+    private String getClassReminderTip(int minutes) {
+        if (minutes >= 60) {
+            return "✨ *Можно спокойно подготовиться:*\n• Проверьте материалы\n• Соберите все необходимое";
+        } else if (minutes >= 30) {
+            return "📚 *Пора готовиться:*\n• Возьмите конспекты\n• Проверьте подключение";
+        } else if (minutes >= 15) {
+            return "⚡ *Время поджимает:*\n• Быстрая подготовка\n• Зарядите устройства";
+        } else if (minutes >= 5) {
+            return "🚨 *Срочно!*:\n• Берите самое необходимое\n• Выходите заранее";
+        } else {
+            return "🔥 *Опаздываете!*:\n• Бегите!";
+        }
+    }
+
+    /**
+     * Возвращает советы по подготовке к конкретному предмету
+     */
+    private String getClassPreparationTips(String subject) {
+        if (subject == null) return "";
+
+        String lowerSubject = subject.toLowerCase();
+
+        if (lowerSubject.contains("матем") || lowerSubject.contains("алг")) {
+            return "📐 *Совет:* Возьмите калькулятор и тетрадь с формулами";
+        } else if (lowerSubject.contains("физик")) {
+            return "⚛️ *Совет:* Повторите основные законы и формулы";
+        } else if (lowerSubject.contains("хими")) {
+            return "🧪 *Совет:* Вспомните таблицу Менделеева";
+        } else if (lowerSubject.contains("информат") || lowerSubject.contains("програм")) {
+            return "💻 *Совет:* Зарядите ноутбук и проверьте код";
+        } else if (lowerSubject.contains("англ") || lowerSubject.contains("язык")) {
+            return "🇬🇧 *Совет:* Повторите словарный запас";
+        } else if (lowerSubject.contains("истор")) {
+            return "📜 *Совет:* Вспомните ключевые даты";
+        } else if (lowerSubject.contains("биолог")) {
+            return "🧬 *Совет:* Повторите термины и схемы";
+        } else {
+            return "📝 *Совет:* Возьмите конспекты и ручку";
+        }
+    }
+
+    // ====== ОСНОВНЫЕ МЕТОДЫ ОТПРАВКИ ======
 
     /**
      * Отправляет расписание на сегодня во все активные чаты
      */
     public void sendDailyScheduleToAllChats() {
-        log.info("📅 Начинаю рассылку расписания на сегодня...");
+        log.info("📅 Запуск отправки ежедневного расписания...");
 
-        // Получаем все активные чаты с включенными уведомлениями о расписании
-        List<BotChat> activeChats = botChatRepository.findChatsWithScheduleNotifications();
-
-        if (activeChats.isEmpty()) {
-            log.info("📭 Нет активных чатов с включенными уведомлениями о расписании");
-            return;
-        }
-
-        log.info("🔔 Найдено {} чатов для рассылки расписания", activeChats.size());
-
-        // Получаем расписание на сегодня
-        String scheduleMessage = generateTodayScheduleMessage();
+        List<BotChat> activeChats = botChatService.findAllActiveChats();
 
         for (BotChat chat : activeChats) {
             try {
-                sendMessageToChat(chat.getChatId(), scheduleMessage);
-                log.info("✅ Расписание отправлено в чат {}: {}", chat.getChatId(), chat.getTitle());
+                if (shouldSendScheduleToChat(chat)) {
+                    sendScheduleToChat(chat.getChatId());
+                    Thread.sleep(100);
+                }
             } catch (Exception e) {
-                log.error("❌ Ошибка отправки в чат {}: {}", chat.getChatId(), e.getMessage());
+                log.error("Ошибка отправки расписания в чат {}: {}", chat.getChatId(), e.getMessage());
             }
         }
 
-        log.info("✅ Рассылка расписания завершена");
+        log.info("✅ Ежедневное расписание отправлено в {} чатов", activeChats.size());
     }
 
     /**
-     * Отправляет дедлайны на неделю во все активные чаты
+     * Отправляет дедлайны во все активные чаты
      */
     public void sendWeeklyDeadlinesToAllChats() {
-        log.info("⏰ Начинаю рассылку дедлайнов на неделю...");
+        log.info("⏰ Запуск отправки недельных дедлайнов...");
 
-        // Получаем все активные чаты с включенными уведомлениями о дедлайнах
-        List<BotChat> activeChats = botChatRepository.findChatsWithDeadlineNotifications();
-
-        if (activeChats.isEmpty()) {
-            log.info("📭 Нет активных чатов с включенными уведомлениями о дедлайнах");
-            return;
-        }
-
-        log.info("🔔 Найдено {} чатов для рассылки дедлайнов", activeChats.size());
-
-        // Получаем дедлайны на ближайшую неделю
-        String deadlinesMessage = generateWeeklyDeadlinesMessage();
+        List<BotChat> activeChats = botChatService.findAllActiveChats();
 
         for (BotChat chat : activeChats) {
             try {
-                sendMessageToChat(chat.getChatId(), deadlinesMessage);
-                log.info("✅ Дедлайны отправлены в чат {}: {}", chat.getChatId(), chat.getTitle());
+                if (shouldSendDeadlinesToChat(chat)) {
+                    sendDeadlinesToChat(chat.getChatId());
+                    Thread.sleep(100);
+                }
             } catch (Exception e) {
-                log.error("❌ Ошибка отправки в чат {}: {}", chat.getChatId(), e.getMessage());
+                log.error("Ошибка отправки дедлайнов в чат {}: {}", chat.getChatId(), e.getMessage());
             }
         }
 
-        log.info("✅ Рассылка дедлайнов завершена");
+        log.info("✅ Недельные дедлайны отправлены в {} чатов", activeChats.size());
     }
 
     /**
-     * Отправляет напоминания перед парой
+     * Отправляет напоминание о начале пары (ЕДИНЫЙ МЕТОД)
      */
-    public void sendBeforeClassReminders() {
-        log.info("⏳ Проверяю напоминания перед парой...");
+    public void sendClassReminder(Long chatId, Schedule schedule, int minutesBefore) {
+        try {
+            Optional<Integer> botTopicId = botChatService.getBotTopicId(chatId);
 
-        LocalDateTime now = LocalDateTime.now();
-        LocalTime currentTime = now.toLocalTime();
+            // Используем единый метод генерации
+            String reminderText = generateClassReminderMessage(schedule, minutesBefore);
 
-        // Получаем все активные чаты
-        List<BotChat> activeChats = botChatRepository.findAllActiveChats();
+            sendMessageToChat(chatId, botTopicId.orElse(null), reminderText, false);
 
-        for (BotChat chat : activeChats) {
-            try {
-                // Получаем настройку времени напоминания для этого чата
-                int reminderMinutes = getReminderBeforeClassMinutes(chat);
+            log.info("✅ Напоминание отправлено в чат {}: '{}' за {} минут",
+                    chatId, schedule.getSubject(), minutesBefore);
 
-                if (reminderMinutes <= 0) {
-                    continue; // Напоминания отключены для этого чата
-                }
-
-                // Генерируем напоминания для этого чата
-                sendBeforeClassRemindersForChat(chat, now, reminderMinutes);
-
-            } catch (Exception e) {
-                log.error("❌ Ошибка проверки напоминаний для чата {}: {}", chat.getChatId(), e.getMessage());
-            }
+        } catch (Exception e) {
+            log.error("❌ Ошибка отправки напоминания в чат {}: {}", chatId, e.getMessage(), e);
         }
     }
+
+    /**
+     * Отправляет сообщение в чат с учетом темы бота если она установлена
+     */
+    public void sendMessageToChat(Long chatId, String text) {
+        sendMessageToChat(chatId, null, text, false);
+    }
+
+    /**
+     * Отправляет сообщение в чат с возможностью указать тему
+     */
+    public void sendMessageToChat(Long chatId, Integer messageThreadId, String text, boolean removeKeyboard) {
+        try {
+            Optional<Integer> botTopicId = botChatService.getBotTopicId(chatId);
+            Integer targetTopicId = messageThreadId != null ? messageThreadId : botTopicId.orElse(null);
+
+            SendMessage.SendMessageBuilder builder = SendMessage.builder()
+                    .chatId(chatId)
+                    .text(text)
+                    .parseMode("Markdown");
+
+            if (targetTopicId != null) {
+                builder.messageThreadId(targetTopicId);
+                log.debug("Отправка уведомления в тему ID: {} для чата {}", targetTopicId, chatId);
+            }
+
+            if (removeKeyboard) {
+                builder.replyMarkup(new ReplyKeyboardRemove(true));
+            }
+
+            telegramBot.execute(builder.build());
+
+            log.info("✅ Уведомление отправлено в чат {} (тема: {})",
+                    chatId, targetTopicId != null ? targetTopicId : "без темы");
+
+        } catch (TelegramApiException e) {
+            log.error("❌ Ошибка отправки сообщения в чат {}: {}", chatId, e.getMessage(), e);
+        } catch (Exception e) {
+            log.error("❌ Неожиданная ошибка при отправке в чат {}: {}", chatId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Отправляет расписание в конкретный чат
+     */
+    public void sendScheduleToChat(Long chatId) {
+        try {
+            Optional<Integer> botTopicId = botChatService.getBotTopicId(chatId);
+            String scheduleText = formatDailySchedule();
+            sendMessageToChat(chatId, botTopicId.orElse(null), scheduleText, false);
+        } catch (Exception e) {
+            log.error("Ошибка отправки расписания в чат {}: {}", chatId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Отправляет дедлайны в конкретный чат
+     */
+    public void sendDeadlinesToChat(Long chatId) {
+        try {
+            Optional<Integer> botTopicId = botChatService.getBotTopicId(chatId);
+            String deadlinesText = formatDeadlines();
+            sendMessageToChat(chatId, botTopicId.orElse(null), deadlinesText, false);
+        } catch (Exception e) {
+            log.error("Ошибка отправки дедлайнов в чат {}: {}", chatId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Отправляет тестовое сообщение для проверки темы
+     */
+    public void sendTestMessageToChat(Long chatId, String messageType) {
+        try {
+            Optional<Integer> botTopicId = botChatService.getBotTopicId(chatId);
+
+            String testText = String.format("""
+                🔔 *ТЕСТОВОЕ УВЕДОМЛЕНИЕ: %s*
+                
+                📅 *Дата:* %s
+                ⏰ *Время:* %s
+                📌 *Тема ID:* %s
+                
+                ✅ *Это тестовое сообщение для проверки работы системы уведомлений.*
+                """,
+                    messageType,
+                    LocalDate.now().format(DATE_FORMATTER),
+                    LocalTime.now().format(TIME_FORMATTER_LONG),
+                    botTopicId.map(String::valueOf).orElse("не установлена"));
+
+            sendMessageToChat(chatId, botTopicId.orElse(null), testText, false);
+
+        } catch (Exception e) {
+            log.error("Ошибка отправки тестового сообщения в чат {}: {}", chatId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Тестовый метод: отправляет расписание в указанный чат
+     */
+    public void sendTestScheduleToChat(Long chatId) {
+        try {
+            String scheduleMessage = generateTodayScheduleMessage();
+            sendMessageToChat(chatId, scheduleMessage);
+            log.info("✅ Тестовое расписание отправлено в чат {}", chatId);
+        } catch (Exception e) {
+            log.error("❌ Ошибка тестовой отправки в чат {}: {}", chatId, e.getMessage());
+        }
+    }
+
+    /**
+     * Тестовый метод: отправляет дедлайны в указанный чат
+     */
+    public void sendTestDeadlinesToChat(Long chatId) {
+        try {
+            String deadlinesMessage = generateWeeklyDeadlinesMessage();
+            sendMessageToChat(chatId, deadlinesMessage);
+            log.info("✅ Тестовые дедлайны отправлены в чат {}", chatId);
+        } catch (Exception e) {
+            log.error("❌ Ошибка тестовой отправки в чат {}: {}", chatId, e.getMessage());
+        }
+    }
+
+    // ====== МЕТОДЫ ГЕНЕРАЦИИ ДЛЯ УПРАВЛЕНИЯ ======
 
     /**
      * Генерирует сообщение с расписанием на сегодня
      */
-    private String generateTodayScheduleMessage() {
+    public String generateTodayScheduleMessage() {
         LocalDate today = LocalDate.now();
         String currentWeekType = weekTypeService.getCurrentWeekType();
         String weekTypeDisplay = weekTypeService.getWeekTypeDisplayName(currentWeekType);
@@ -148,10 +461,7 @@ public class ReminderMessageService {
         String dayName = today.getDayOfWeek().getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE);
         dayName = dayName.substring(0, 1).toUpperCase() + dayName.substring(1);
 
-        // Получаем расписание на сегодня
         List<Schedule> allScheduleList = scheduleRepository.findByDayOfWeek(dayNumber);
-
-        // Фильтруем по типу недели
         List<Schedule> filteredScheduleList = allScheduleList.stream()
                 .filter(s -> {
                     String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
@@ -173,7 +483,6 @@ public class ReminderMessageService {
                     weekTypeEmoji, weekTypeDisplay);
         }
 
-        // Форматируем расписание
         StringBuilder scheduleText = new StringBuilder();
 
         for (int i = 0; i < filteredScheduleList.size(); i++) {
@@ -223,11 +532,10 @@ public class ReminderMessageService {
     /**
      * Генерирует сообщение с дедлайнами на неделю
      */
-    private String generateWeeklyDeadlinesMessage() {
+    public String generateWeeklyDeadlinesMessage() {
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime twoWeeksLater = now.plusDays(14); // Увеличиваем до 2 недель
+        LocalDateTime twoWeeksLater = now.plusDays(14);
 
-        // Получаем все дедлайны на ближайшие 2 недели
         List<Deadline> deadlines = deadlineRepository.findAll().stream()
                 .filter(d -> {
                     LocalDateTime deadlineAt = d.getDeadlineAt();
@@ -248,15 +556,13 @@ public class ReminderMessageService {
         }
 
         StringBuilder deadlinesText = new StringBuilder();
-        int urgentCount = 0;      // < 3 дней (красные)
-        int normalCount = 0;      // 3-7 дней (желтые)
-        int futureCount = 0;      // 7-14 дней (зеленые)
+        int urgentCount = 0;
+        int normalCount = 0;
+        int futureCount = 0;
 
         for (int i = 0; i < deadlines.size(); i++) {
             Deadline d = deadlines.get(i);
             LocalDateTime deadlineTime = d.getDeadlineAt();
-
-            // Рассчитываем разницу в днях
             long daysBetween = java.time.temporal.ChronoUnit.DAYS.between(
                     now.toLocalDate(),
                     deadlineTime.toLocalDate()
@@ -266,44 +572,27 @@ public class ReminderMessageService {
             String daysText;
             String priorityLabel = "";
 
-            // Срочные (менее 3 дней) - 🔴
             if (daysBetween < 3) {
                 emoji = "🔴";
                 urgentCount++;
                 priorityLabel = " (СРОЧНО)";
-
                 if (daysBetween == 0) {
-                    // Рассчитываем оставшиеся часы для сегодняшнего дедлайна
                     long hoursLeft = java.time.temporal.ChronoUnit.HOURS.between(now, deadlineTime);
-                    if (hoursLeft <= 12) {
-                        daysText = String.format("⏰ Осталось %d ч.", hoursLeft);
-                    } else {
-                        daysText = "⏰ Сдать сегодня";
-                    }
+                    daysText = hoursLeft <= 12 ? String.format("⏰ Осталось %d ч.", hoursLeft) : "⏰ Сдать сегодня";
                 } else if (daysBetween == 1) {
                     daysText = "⏳ Остался 1 день";
                 } else {
                     daysText = String.format("⏳ Осталось %d д.", daysBetween);
                 }
-            }
-            // Нормальные (3-7 дней) - 🟡
-            else if (daysBetween <= 7) {
+            } else if (daysBetween <= 7) {
                 emoji = "🟡";
                 normalCount++;
                 priorityLabel = " (НОРМАЛЬНЫЙ)";
-
-                if (daysBetween == 3) {
-                    daysText = "⏳ Осталось 3 дня";
-                } else {
-                    daysText = String.format("⏳ Осталось %d д.", daysBetween);
-                }
-            }
-            // Будущие (7-14 дней) - 🟢
-            else {
+                daysText = String.format("⏳ Осталось %d д.", daysBetween);
+            } else {
                 emoji = "🟢";
                 futureCount++;
                 priorityLabel = " (БУДУЩИЙ)";
-
                 if (daysBetween == 7) {
                     daysText = "📅 Через неделю";
                 } else if (daysBetween == 14) {
@@ -313,9 +602,7 @@ public class ReminderMessageService {
                 }
             }
 
-            // Добавляем номер дедлайна
             int deadlineNumber = i + 1;
-
             deadlinesText.append(String.format("%d. %s *%s*%s\n",
                             deadlineNumber, emoji, d.getTitle(), priorityLabel))
                     .append(String.format("   📅 %s\n",
@@ -324,7 +611,6 @@ public class ReminderMessageService {
                             d.getDescription() != null && !d.getDescription().isBlank() ?
                                     d.getDescription() : "Описание отсутствует"));
 
-            // Добавляем ссылку, если она есть
             if (d.getLinkUrl() != null && !d.getLinkUrl().isBlank()) {
                 String linkText = d.getLinkText() != null && !d.getLinkText().isBlank()
                         ? d.getLinkText()
@@ -334,13 +620,11 @@ public class ReminderMessageService {
 
             deadlinesText.append(String.format("   %s\n", daysText));
 
-            // Добавляем разделитель между дедлайнами, но не после последнего
             if (i < deadlines.size() - 1) {
                 deadlinesText.append("\n──────────\n\n");
             }
         }
 
-        // Формируем общую статистику
         String statistics;
         if (urgentCount > 0) {
             statistics = String.format("""
@@ -374,7 +658,6 @@ public class ReminderMessageService {
                     deadlines.size());
         }
 
-        // Формируем совет в зависимости от приоритета дедлайнов
         String advice;
         if (urgentCount > 0) {
             advice = """
@@ -421,134 +704,7 @@ public class ReminderMessageService {
                 advice);
     }
 
-    /**
-     * Отправляет напоминания перед парой для конкретного чата
-     */
-    private void sendBeforeClassRemindersForChat(BotChat chat, LocalDateTime now, int reminderMinutes) {
-        LocalDate today = LocalDate.now();
-        String currentWeekType = weekTypeService.getCurrentWeekType();
-        int dayNumber = today.getDayOfWeek().getValue();
-
-        // Получаем расписание на сегодня
-        List<Schedule> scheduleList = scheduleRepository.findByDayOfWeek(dayNumber).stream()
-                .filter(s -> {
-                    String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
-                    return scheduleWeekType.equals(currentWeekType) || scheduleWeekType.equals("all");
-                })
-                .sorted(Comparator.comparing(Schedule::getTimeStart))
-                .collect(Collectors.toList());
-
-        for (Schedule schedule : scheduleList) {
-            LocalTime classStart = schedule.getTimeStart();
-            LocalTime reminderTime = classStart.minusMinutes(reminderMinutes);
-            LocalTime currentTime = now.toLocalTime();
-
-            // Проверяем, наступило ли время напоминания (с точностью до минуты)
-            if (currentTime.getHour() == reminderTime.getHour() &&
-                    currentTime.getMinute() == reminderTime.getMinute()) {
-
-                String reminderMessage = generateBeforeClassReminder(schedule, reminderMinutes);
-                try {
-                    sendMessageToChat(chat.getChatId(), reminderMessage);
-                    log.info("⏰ Напоминание отправлено в чат {} за {} минут до пары: {}",
-                            chat.getChatId(), reminderMinutes, schedule.getSubject());
-                } catch (Exception e) {
-                    log.error("❌ Ошибка отправки напоминания в чат {}: {}", chat.getChatId(), e.getMessage());
-                }
-            }
-        }
-    }
-
-    /**
-     * Генерирует напоминание перед парой
-     */
-    private String generateBeforeClassReminder(Schedule schedule, int minutesBefore) {
-        String timeRange = String.format("%s-%s",
-                schedule.getTimeStart().format(TIME_FORMATTER),
-                schedule.getTimeEnd().format(TIME_FORMATTER));
-
-        String location = (schedule.getIsOnline() != null && schedule.getIsOnline()) ?
-                "💻 Онлайн" : "🏫 " + (schedule.getLocation() != null ? schedule.getLocation() : "Аудитория не указана");
-
-        return String.format("""
-            ⏰ *НАПОМИНАНИЕ О ПАРЕ*
-            
-            Через *%d минут* начинается пара:
-            
-            📖 *%s*
-            ⏰ *%s*
-            👨‍🏫 %s
-            %s
-            
-            🚀 *Успевайте подготовиться!*
-            """,
-                minutesBefore,
-                schedule.getSubject(),
-                timeRange,
-                schedule.getTeacher() != null ? schedule.getTeacher() : "Преподаватель не указан",
-                location);
-    }
-
-    /**
-     * Отправляет сообщение в чат
-     */
-    private void sendMessageToChat(Long topicId, String text) throws TelegramApiException {
-        SendMessage message = SendMessage.builder()
-                .chatId(topicId.toString())
-                .text(text)
-                .parseMode(ParseMode.MARKDOWN)
-                .build();
-
-        telegramBot.execute(message);
-    }
-
-    /**
-     * Получает количество минут для напоминания перед парой из настроек чата
-     */
-    private int getReminderBeforeClassMinutes(BotChat chat) {
-        Map<String, Object> settings = chat.getSettings();
-        if (settings != null && settings.containsKey("reminder_before_class")) {
-            Object value = settings.get("reminder_before_class");
-            if (value instanceof Integer) {
-                return (Integer) value;
-            } else if (value instanceof String) {
-                try {
-                    return Integer.parseInt((String) value);
-                } catch (NumberFormatException e) {
-                    log.warn("Некорректное значение reminder_before_class в чате {}: {}", chat.getChatId(), value);
-                }
-            }
-        }
-
-        // ВОЗВРАЩАЕМ ИЗ YAML КОНФИГУРАЦИИ
-        return settingsConfig.getReminders().getBeforeClass().getMinutes();
-    }
-
-    /**
-     * Тестовый метод: отправляет расписание в указанный чат
-     */
-    public void sendTestScheduleToChat(Long chatId) {
-        try {
-            String scheduleMessage = generateTodayScheduleMessage();
-            sendMessageToChat(chatId, scheduleMessage);
-            log.info("✅ Тестовое расписание отправлено в чат {}", chatId);
-        } catch (Exception e) {
-            log.error("❌ Ошибка тестовой отправки в чат {}: {}", chatId, e.getMessage());
-        }
-    }
-
-    /**
-     * Тестовый метод: отправляет дедлайны в указанный чат
-     */
-    public void sendTestDeadlinesToChat(Long chatId) {
-        try {
-            String deadlinesMessage = generateWeeklyDeadlinesMessage();
-            sendMessageToChat(chatId, deadlinesMessage);
-            log.info("✅ Тестовые дедлайны отправлены в чат {}", chatId);
-        } catch (Exception e) {
-            log.error("❌ Ошибка тестовой отправки в чат {}: {}", chatId, e.getMessage());
-        }
-    }
+    // ====== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ======
 
     private String getWeekTypeEmoji(String weekType) {
         if ("odd".equals(weekType)) {
@@ -558,5 +714,182 @@ public class ReminderMessageService {
         } else {
             return "🔄";
         }
+    }
+
+    /**
+     * Проверяет, нужно ли отправлять расписание в чат
+     */
+    private boolean shouldSendScheduleToChat(BotChat chat) {
+        if (chat == null || !Boolean.TRUE.equals(chat.getIsActive())) {
+            return false;
+        }
+
+        Map<String, Object> settings = chat.getSettings();
+        if (settings == null) {
+            return true;
+        }
+
+        return (boolean) settings.getOrDefault("schedule_notifications", true);
+    }
+
+    /**
+     * Проверяет, нужно ли отправлять дедлайны в чат
+     */
+    private boolean shouldSendDeadlinesToChat(BotChat chat) {
+        if (chat == null || !Boolean.TRUE.equals(chat.getIsActive())) {
+            return false;
+        }
+
+        Map<String, Object> settings = chat.getSettings();
+        if (settings == null) {
+            return true;
+        }
+
+        return (boolean) settings.getOrDefault("deadline_notifications", true);
+    }
+
+    /**
+     * Форматирует расписание на сегодня
+     */
+    private String formatDailySchedule() {
+        LocalDate today = LocalDate.now();
+        int dayNumber = today.getDayOfWeek().getValue();
+        String currentWeekType = weekTypeService.getCurrentWeekType();
+        String weekTypeDisplay = weekTypeService.getWeekTypeDisplayName(currentWeekType);
+        String weekTypeEmoji = weekTypeService.getWeekTypeEmoji(currentWeekType);
+
+        List<Schedule> allScheduleList = scheduleService.findEntitiesByDay(dayNumber);
+        List<Schedule> filteredScheduleList = allScheduleList.stream()
+                .filter(s -> {
+                    String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
+                    return scheduleWeekType.equals(currentWeekType) || scheduleWeekType.equals("all");
+                })
+                .sorted(Comparator.comparing(Schedule::getTimeStart))
+                .toList();
+
+        if (filteredScheduleList.isEmpty()) {
+            return String.format("""
+                📭 *Сегодня занятий нет!* 📭
+                📅 *День:* %s
+                🗓️ *Тип недели:* %s %s
+                
+                🎉 *Можно отдохнуть или заняться саморазвитием*
+                """,
+                    today.getDayOfWeek().getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE),
+                    weekTypeEmoji, weekTypeDisplay);
+        }
+
+        StringBuilder scheduleText = new StringBuilder();
+        scheduleText.append(String.format("📋 *РАСПИСАНИЕ НА СЕГОДНЯ*\n"))
+                .append(String.format("📅 *День:* %s\n",
+                        today.getDayOfWeek().getDisplayName(TextStyle.FULL, RUSSIAN_LOCALE)))
+                .append(String.format("🗓️ *Тип недели:* %s %s\n\n",
+                        weekTypeEmoji, weekTypeDisplay));
+
+        for (int i = 0; i < filteredScheduleList.size(); i++) {
+            Schedule s = filteredScheduleList.get(i);
+            String timeRange = String.format("%s-%s",
+                    s.getTimeStart().format(TIME_FORMATTER),
+                    s.getTimeEnd().format(TIME_FORMATTER));
+
+            String scheduleWeekType = s.getWeekType() != null ? s.getWeekType() : "all";
+            String pairWeekTypeEmoji = "odd".equals(scheduleWeekType) ? "1️⃣" :
+                    "even".equals(scheduleWeekType) ? "2️⃣" : "🔄";
+            String onlineEmoji = Boolean.TRUE.equals(s.getIsOnline()) ? "💻" : "🏫";
+
+            scheduleText.append(String.format("%d. %s %s\n", i + 1, pairWeekTypeEmoji, onlineEmoji))
+                    .append(String.format("   ⏰ *%s*\n", timeRange))
+                    .append(String.format("   📖 %s\n", s.getSubject()));
+
+            if (s.getTeacher() != null && !s.getTeacher().isBlank()) {
+                scheduleText.append(String.format("   👨‍🏫 %s\n", s.getTeacher()));
+            }
+
+            if (s.getLocation() != null && !s.getLocation().isBlank()) {
+                String location = Boolean.TRUE.equals(s.getIsOnline()) ? "Онлайн" : s.getLocation();
+                scheduleText.append(String.format("   📍 %s\n", location));
+            }
+
+            scheduleText.append("\n");
+        }
+
+        return scheduleText.toString();
+    }
+
+    /**
+     * Форматирует дедлайны
+     */
+    private String formatDeadlines() {
+        List<Deadline> allDeadlines = deadlineService.findAllDeadlinesSorted();
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime sevenDaysAgo = now.minusDays(7);
+
+        List<Deadline> filteredDeadlines = allDeadlines.stream()
+                .filter(d -> {
+                    LocalDateTime deadlineTime = d.getDeadlineAt();
+                    return deadlineTime.isAfter(now) ||
+                            (deadlineTime.isBefore(now) && deadlineTime.isAfter(sevenDaysAgo));
+                })
+                .sorted((d1, d2) -> d1.getDeadlineAt().compareTo(d2.getDeadlineAt()))
+                .toList();
+
+        if (filteredDeadlines.isEmpty()) {
+            return """
+                ✅ *Все дедлайны выполнены!* ✅
+                
+                🎉 *Отличная работа!* 🎉
+                Все задания сданы вовремя.
+                """;
+        }
+
+        StringBuilder deadlinesText = new StringBuilder();
+        deadlinesText.append("⏰ *АКТУАЛЬНЫЕ ДЕДЛАЙНЫ*\n\n");
+
+        for (int i = 0; i < filteredDeadlines.size(); i++) {
+            Deadline deadline = filteredDeadlines.get(i);
+            LocalDateTime deadlineTime = deadline.getDeadlineAt();
+            long daysBetween = java.time.temporal.ChronoUnit.DAYS.between(
+                    now.toLocalDate(),
+                    deadlineTime.toLocalDate()
+            );
+
+            String emoji;
+            String daysText;
+
+            if (deadlineTime.isBefore(now)) {
+                emoji = "🔴";
+                long daysOverdue = Math.abs(daysBetween);
+                daysText = daysOverdue == 0 ? "⚠️ Просрочено сегодня" :
+                        String.format("⚠️ Просрочено на %d д.", daysOverdue);
+            } else if (daysBetween == 0) {
+                emoji = "🔴";
+                daysText = "⏰ Сдать сегодня";
+            } else if (daysBetween <= 2) {
+                emoji = "🔴";
+                daysText = String.format("⏳ Осталось %d д.", daysBetween);
+            } else if (daysBetween <= 7) {
+                emoji = "🟡";
+                daysText = String.format("⏳ Осталось %d д.", daysBetween);
+            } else {
+                emoji = "🟢";
+                daysText = String.format("⏳ Осталось %d д.", daysBetween);
+            }
+
+            deadlinesText.append(String.format("%s *%s*\n", emoji, deadline.getTitle()))
+                    .append(String.format("   📅 %s\n", deadlineTime.format(DATETIME_FORMATTER)))
+                    .append(String.format("   📝 %s\n",
+                            deadline.getDescription() != null && !deadline.getDescription().isBlank() ?
+                                    deadline.getDescription() : "Описание отсутствует"));
+
+            if (deadline.getLinkUrl() != null && !deadline.getLinkUrl().isBlank()) {
+                String linkText = deadline.getLinkText() != null && !deadline.getLinkText().isBlank() ?
+                        deadline.getLinkText() : "Ссылка на задание";
+                deadlinesText.append(String.format("   🔗 [%s](%s)\n", linkText, deadline.getLinkUrl()));
+            }
+
+            deadlinesText.append(String.format("   %s\n\n", daysText));
+        }
+
+        return deadlinesText.toString();
     }
 }

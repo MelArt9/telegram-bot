@@ -151,9 +151,12 @@ public class BotChatService {
         });
     }
 
+    /**
+     * Устанавливает тему для бота
+     */
     @Transactional
     public void setBotTopicId(Long chatId, Integer topicId, String topicName) {
-        botChatRepository.findByChatId(chatId).ifPresent(chat -> {
+        findByChatId(chatId).ifPresent(chat -> {
             Map<String, Object> settings = chat.getSettings();
             if (settings == null) {
                 settings = new HashMap<>();
@@ -165,20 +168,89 @@ public class BotChatService {
             chat.setUpdatedAt(LocalDateTime.now());
             botChatRepository.save(chat);
 
-            log.info("Установлена тема для бота: {} (ID: {}) в чате {}",
-                    topicName, topicId, chatId);
+            log.info("✅ Тема установлена для чата {}: ID={}, Название={}",
+                    chatId, topicId, topicName);
         });
     }
 
+    /**
+     * Получает ID темы бота для указанного чата
+     */
     public Optional<Integer> getBotTopicId(Long chatId) {
-        return botChatRepository.findByChatId(chatId)
+        return findByChatId(chatId)
                 .map(chat -> {
                     Map<String, Object> settings = chat.getSettings();
                     if (settings != null && settings.containsKey("bot_topic_id")) {
-                        return (Integer) settings.get("bot_topic_id");
+                        Object topicId = settings.get("bot_topic_id");
+                        return convertToInteger(topicId);
                     }
                     return null;
                 });
+    }
+
+    /**
+     * Проверяет, установлена ли тема бота для чата
+     */
+    public boolean hasBotTopic(Long chatId) {
+        return getBotTopicId(chatId).isPresent();
+    }
+
+    /**
+     * Получает название темы бота
+     */
+    public Optional<String> getBotTopicName(Long chatId) {
+        return findByChatId(chatId)
+                .map(chat -> {
+                    Map<String, Object> settings = chat.getSettings();
+                    if (settings != null && settings.containsKey("bot_topic_name")) {
+                        return (String) settings.get("bot_topic_name");
+                    }
+                    return null;
+                });
+    }
+
+    /**
+     * Удаляет тему бота
+     */
+    @Transactional
+    public void clearBotTopic(Long chatId) {
+        findByChatId(chatId).ifPresent(chat -> {
+            Map<String, Object> settings = chat.getSettings();
+            if (settings != null) {
+                settings.remove("bot_topic_id");
+                settings.remove("bot_topic_name");
+                chat.setSettings(settings);
+                chat.setUpdatedAt(LocalDateTime.now());
+                botChatRepository.save(chat);
+
+                log.info("✅ Тема удалена для чата {}", chatId);
+            }
+        });
+    }
+
+    /**
+     * Конвертирует объект в Integer
+     */
+    private Integer convertToInteger(Object obj) {
+        if (obj == null) return null;
+
+        if (obj instanceof Integer) {
+            return (Integer) obj;
+        } else if (obj instanceof Long) {
+            return ((Long) obj).intValue();
+        } else if (obj instanceof String) {
+            try {
+                return Integer.parseInt((String) obj);
+            } catch (NumberFormatException e) {
+                log.warn("Некорректный формат topic_id: {}", obj);
+                return null;
+            }
+        } else if (obj instanceof Number) {
+            return ((Number) obj).intValue();
+        }
+
+        log.warn("Неизвестный тип topic_id: {} ({})", obj, obj.getClass());
+        return null;
     }
 
     /**
