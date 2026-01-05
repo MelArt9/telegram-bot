@@ -11,6 +11,7 @@ import ru.melnikov.telegrambot.repository.BotChatRepository;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -178,5 +179,19 @@ public class BotChatService {
                     }
                     return null;
                 });
+    }
+
+    /**
+     * Получить репозиторий для прямого доступа (используется в Web-контроллерах)
+     */
+    public BotChatRepository getRepository() {
+        return botChatRepository;
+    }
+
+    /**
+     * Получить все активные чаты
+     */
+    public List<BotChat> findAllActiveChats() {
+        return botChatRepository.findAllActiveChats();
     }
 }

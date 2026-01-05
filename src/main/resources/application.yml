@@ -28,10 +28,21 @@ spring:
     suffix: .html
     mode: HTML
     cache: false
+    encoding: UTF-8
+
+  security:
+    user:
+      name: ${admin.username}
+      password: ${admin.password}
+      roles: ADMIN
 
   web:
     resources:
       static-locations: classpath:/static/
+
+admin:
+  username: ${ADMIN_USERNAME:admin}
+  password: ${ADMIN_PASSWORD:admin123}
 
 # Включим подробное логирование для шедулера
 logging:
