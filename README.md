@@ -81,3 +81,6 @@ mvn clean package -DskipTests
 
 # 5. Запуск
 java -jar target/telegram-bot-0.0.1-SNAPSHOT.jar
+```
+
+⚙️ Установка
