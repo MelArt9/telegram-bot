@@ -1,3 +1,4 @@
+// Файл: /src/main/java/ru/melnikov/telegrambot/model/BotChat.java
 package ru.melnikov.telegrambot.model;
 
 import jakarta.persistence.*;
@@ -35,6 +36,12 @@ public class BotChat {
     @Column(name = "is_active")
     private Boolean isActive;
 
+    @Column(name = "is_bot_admin")
+    private Boolean isBotAdmin; // ← НОВОЕ: является ли бот администратором
+
+    @Column(name = "bot_permissions", columnDefinition = "TEXT")
+    private String botPermissions; // ← НОВОЕ: права бота в JSON
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "settings", columnDefinition = "jsonb")
     private Map<String, Object> settings;
@@ -50,6 +57,8 @@ public class BotChat {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
         if (isActive == null) isActive = true;
+        if (isBotAdmin == null) isBotAdmin = false;
+        if (botPermissions == null) botPermissions = "{}";
     }
 
     @PreUpdate

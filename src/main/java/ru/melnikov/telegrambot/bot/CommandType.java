@@ -15,6 +15,10 @@ public enum CommandType {
     SETTINGS("/settings", "Настройки группы"),
     ADMIN("/admin", "Проверка админских прав"),
     SETTOPIC("/settopic", "Установить тему для бота"),
+    CHATINFO("/chatinfo", "Информация о чате"),
+    IAMADMIN("/iamadmin", "Установить бота как администратора"), // ← НОВАЯ
+    SETADMIN("/setadmin", "Установить бота как администратора"), // ← НОВАЯ
+    CONFIG("/config", "Управление конфигурацией"),
     UNKNOWN("", "");
 
     private final String command;

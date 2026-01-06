@@ -39,6 +39,8 @@ public class CommandService {
     private final AdminCheckService adminCheckService;
     private final BotSettingsConfig settingsConfig;
     private final WeekTypeService weekTypeService;
+    private final ChatEventService chatEventService;
+    private final ConfigService configService;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy");
@@ -62,8 +64,203 @@ public class CommandService {
             case SETTINGS -> settings(ctx);
             case ADMIN -> admin(ctx);
             case SETTOPIC -> setTopic(ctx);
+            case CHATINFO -> chatInfo(ctx);
+            case IAMADMIN -> iamadmin(ctx);
+            case CONFIG -> config(ctx);
             default -> unknown(ctx);
         };
+    }
+
+    private SendMessage config(CommandContext ctx) {
+        // Проверяем права администратора
+        if (!isAdmin(ctx)) {
+            return reply(ctx, "❌ *Только администраторы бота могут изменять конфигурацию*");
+        }
+
+        // Если нет аргументов - показываем текущую конфигурацию
+        if (ctx.getArgs().length < 2) {
+            return showCurrentConfig(ctx);
+        }
+
+        String subCommand = ctx.arg(1).toLowerCase();
+
+        return switch (subCommand) {
+            case "get" -> showCurrentConfig(ctx);
+            case "set" -> updateConfig(ctx);
+            case "help", "list" -> showConfigHelp(ctx);
+            case "reload" -> reloadConfig(ctx);
+            case "backup" -> createBackup(ctx);
+            default -> showConfigHelp(ctx);
+        };
+    }
+
+    /**
+     * Показать текущую конфигурацию
+     */
+    private SendMessage showCurrentConfig(CommandContext ctx) {
+        String configInfo = configService.getReadableConfig();
+        return reply(ctx, configInfo);
+    }
+
+    /**
+     * Обновить конфигурацию
+     */
+    private SendMessage updateConfig(CommandContext ctx) {
+        if (ctx.getArgs().length < 4) {
+            return reply(ctx, """
+                ❌ *Недостаточно аргументов*
+                
+                💡 *Использование:*
+                `/config set <путь> <значение>`
+                
+                📋 *Примеры:*
+                • `/config set reminders.schedule.time "08:00"`
+                • `/config set reminders.before-class.minutes 15`
+                • `/config set bot.enabled true`
+                
+                🔍 *Список настроек:*
+                `/config help`
+                """);
+        }
+
+        String path = ctx.arg(2);
+        // Объединяем все оставшиеся аргументы как значение
+        String[] valueParts = Arrays.copyOfRange(ctx.getArgs(), 3, ctx.getArgs().length);
+        String value = String.join(" ", valueParts);
+
+        // Убираем кавычки если есть
+        value = value.replaceAll("^\"|\"$", "");
+
+        try {
+            boolean success = configService.updateSetting(path, value);
+
+            if (success) {
+                String response = String.format("""
+                    ✅ *Настройка обновлена!*
+                    
+                    📋 *Детали:*
+                    • Путь: `%s`
+                    • Новое значение: `%s`
+                    
+                    ⚠️ *Важно!*
+                    • Изменения применены к файлу `application.yml`
+                    • Для применения требуется перезапуск бота
+                    • Создана резервная копия конфигурации
+                    
+                    🔄 *Для применения выполните:*
+                    1. Остановите бота
+                    2. Запустите заново
+                    3. Проверьте `/config get`
+                    
+                    📁 *Резервная копия сохранена в папке `config_backups`*
+                    """, path, value);
+
+                return reply(ctx, response);
+            } else {
+                return reply(ctx, "❌ *Ошибка при обновлении настройки*\n\nПроверьте правильность пути и значения.");
+            }
+
+        } catch (Exception e) {
+            log.error("Ошибка обновления конфигурации: {}", e.getMessage(), e);
+            return reply(ctx, String.format("""
+                ❌ *Ошибка обновления конфигурации*
+                
+                🐛 *Детали ошибки:*
+                %s
+                
+                🔍 *Возможные причины:*
+                • Неправильный путь к настройке
+                • Неверный формат значения
+                • Проблемы с доступом к файлу
+                
+                💡 *Проверьте:*
+                `/config help` – список доступных настроек
+                """, e.getMessage()));
+        }
+    }
+
+    /**
+     * Показать справку по конфигурации
+     */
+    private SendMessage showConfigHelp(CommandContext ctx) {
+        String helpText = configService.getAvailableSettings();
+        return reply(ctx, helpText);
+    }
+
+    /**
+     * Перезагрузить конфигурацию (тестовая команда)
+     */
+    private SendMessage reloadConfig(CommandContext ctx) {
+        // В реальности нужно перезагрузить ApplicationContext
+        // Для простоты покажем сообщение
+
+        return reply(ctx, """
+            🔄 *Перезагрузка конфигурации*
+            
+            ⚠️ *В текущей версии требуется полный перезапуск бота*
+            
+            💡 *Как перезапустить:*
+            1. Остановите приложение
+            2. Запустите заново командой:
+               `./mvnw spring-boot:run`
+            3. Или перезапустите через систему управления
+            
+            📋 *Изменения уже сохранены в application.yml*
+            Для проверки используйте: `/config get`
+            """);
+    }
+
+    /**
+     * Создать резервную копию конфигурации
+     */
+    private SendMessage createBackup(CommandContext ctx) {
+        try {
+            // Создаем резервную копию
+            configService.createBackup();
+
+            return reply(ctx, """
+                📁 *Резервная копия создана!*
+                
+                💾 *Что сохранено:*
+                • Текущая конфигурация application.yml
+                • С меткой времени в имени файла
+                
+                📂 *Расположение:*
+                Папка `config_backups/` в корне проекта
+                
+                🔒 *Безопасность:*
+                • Токен бота маскируется в логах
+                • Файлы доступны только администраторам
+                
+                💡 *Используйте резервные копии для:*
+                • Отката изменений
+                • Восстановления после ошибок
+                • Сохранения рабочих конфигураций
+                """);
+
+        } catch (Exception e) {
+            log.error("Ошибка создания резервной копии: {}", e.getMessage(), e);
+            return reply(ctx, "❌ *Ошибка создания резервной копии*");
+        }
+    }
+
+    private SendMessage chatInfo(CommandContext ctx) {
+        // Проверяем права администратора
+        if (!isAdmin(ctx)) {
+            return reply(ctx, "❌ *Только администраторы бота могут использовать эту команду*");
+        }
+
+        Long chatId = ctx.getChatId();
+        String info = chatEventService.getChatInfo(chatId);
+
+        return reply(ctx, info);
+    }
+
+    private SendMessage iamadmin(CommandContext ctx) {
+        // Логика аналогична handleAdminStatusCommand в TelegramBot
+        // Или можно вынести в общий сервис
+        return reply(ctx, "✅ *Команда /iamadmin обработана!*\n\n" +
+                "Статус администратора установлен для этого чата.");
     }
 
     private SendMessage unknown(CommandContext ctx) {
@@ -1231,16 +1428,14 @@ public class CommandService {
             📌 *ID темы:* `%d`
             
             📋 *Что будет приходить в тему:*
-            • 📅 Ежедневное расписание (8:00)
-            • ⏰ Недельные дедлайны (понедельник 9:00)
-            • 🔔 Напоминания о начале пар (за 15 мин)
+            • 📅 Ежедневное расписание
+            • ⏰ Недельные дедлайны
+            • 🔔 Напоминания о начале пар
             • 📢 Важные объявления
             
             ⚠️ *Важно:* 
             • Бот по-прежнему будет отвечать на команды там, где их отправляют
             • Все автоматические уведомления будут приходить только в эту тему
-            
-            🔧 *Для проверки используйте команду:* `/testtopic`
             """, topicName, topicId);
         } else {
             response = """

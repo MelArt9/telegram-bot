@@ -14,14 +14,18 @@ public interface BotChatRepository extends JpaRepository<BotChat, Long> {
 
     List<BotChat> findByIsActiveTrue();
 
+    // Новый метод для поиска чатов, где бот администратор
+    @Query("SELECT c FROM BotChat c WHERE c.isActive = true AND c.isBotAdmin = true")
+    List<BotChat> findActiveAdminChats();
+
+    boolean existsByChatId(Long chatId);
+
     @Query(value = """
         SELECT * FROM bot_chats c 
         WHERE c.is_active = true 
         AND c.chat_type IN ('group', 'supergroup', 'GROUP', 'SUPERGROUP')
     """, nativeQuery = true)
     List<BotChat> findAllActiveGroups();
-
-    boolean existsByChatId(Long chatId);
 
     // Упрощаем запросы для JSON полей
     @Query("SELECT c FROM BotChat c WHERE c.isActive = true")
