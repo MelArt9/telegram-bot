@@ -13,9 +13,6 @@ spring:
     username: postgres
     password: test
     driver-class-name: org.postgresql.Driver
-    hikari:
-      maximum-pool-size: 10
-      connection-timeout: 30000
 
   jpa:
     hibernate:
@@ -25,15 +22,6 @@ spring:
       hibernate:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
-    generate-ddl: false
-
-  flyway:
-    enabled: true
-    locations: classpath:db/migration
-    baseline-on-migrate: true  # Создает baseline если таблица flyway_schema_history не существует
-    baseline-version: 1
-    validate-on-migrate: true
-    clean-disabled: true  # Запрещаем clean в продакшене
 
   thymeleaf:
     prefix: classpath:/templates/
@@ -51,10 +39,6 @@ spring:
   web:
     resources:
       static-locations: classpath:/static/
-
-  task:
-    scheduling:
-      enabled: true
 
 admin:
   username: ${ADMIN_USERNAME:admin}
@@ -84,19 +68,19 @@ telegram:
     # Настройки расписания
     schedule:
       enabled: true
-      time: "14:21"        # Время отправки ежедневного расписания
+      time: "08:00"        # Время отправки ежедневного расписания
       days: "1111100"      # Пн-Пт (1=включено, 0=выключено)
 
     # Настройки дедлайнов
     deadlines:
       enabled: true
-      time: "14:21"        # Время отправки еженедельных дедлайнов
+      time: "10:00"        # Время отправки еженедельных дедлайнов
       days: "0101010"      # Вт, Чт, Сб
 
     # Настройки напоминаний перед парой
     before-class:
       enabled: true
-      minutes: 10          # За сколько минут напоминать о начале пары
+      minutes: 15          # За сколько минут напоминать о начале пары
 
     # Настройки определения типа недели (odd/even)
     week-type:
